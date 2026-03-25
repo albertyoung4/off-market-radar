@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Off Market Radar</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --surface-alt: #f1f5f9;
+      --border: #e2e8f0;
+      --border-light: #f1f5f9;
+      --text: #1e293b;
+      --text-muted: #64748b;
+      --text-light: #94a3b8;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --green: #16a34a;
+      --green-bg: #f0fdf4;
+      --yellow: #ca8a04;
+      --yellow-bg: #fefce8;
+      --red: #dc2626;
+      --red-bg: #fef2f2;
+      --blue-bg: #eff6ff;
+      --purple: #7c3aed;
+      --radius: 8px;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+      --shadow: 0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    /* ===== TOP BAR ===== */
+    .topbar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: var(--shadow-sm);
+    }
+    .topbar h1 { font-size: 20px; font-weight: 700; color: var(--text); }
+    .topbar .subtitle { font-size: 13px; color: var(--text-muted); }
+    .topbar-right { display: flex; align-items: center; gap: 16px; }
+    .topbar-right .last-sync { font-size: 12px; color: var(--text-light); }
+
+    /* ===== KPI CARDS ===== */
+    .kpi-bar {
+      display: flex;
+      gap: 12px;
+      padding: 16px 32px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      overflow-x: auto;
+    }
+    .kpi {
+      padding: 12px 20px;
+      background: var(--surface-alt);
+      border-radius: 6px;
+      text-align: center;
+      min-width: 100px;
+    }
+    .kpi .value { font-size: 24px; font-weight: 800; line-height: 1.2; }
+    .kpi .label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .kpi.green .value { color: var(--green); }
+    .kpi.yellow .value { color: var(--yellow); }
+    .kpi.red .value { color: var(--red); }
+    .kpi.blue .value { color: var(--accent); }
+    .kpi.purple .value { color: var(--purple); }
+
+    /* ===== FILTER BAR ===== */
+    .filter-bar {
+      padding: 12px 32px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+    .filter-bar select {
+      padding: 7px 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: inherit;
+      color: var(--text);
+      background: var(--surface);
+      cursor: pointer;
+    }
+    .filter-bar select:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(59,130,246,0.1);
+    }
+    .filter-label { font-size: 13px; font-weight: 500; color: var(--text-muted); }
+    .deal-count { font-size: 13px; color: var(--text-light); margin-left: auto; }
+
+    /* ===== TABLE ===== */
+    .table-wrap { padding: 0 32px 24px; }
+    .deals-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      background: var(--surface);
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: var(--shadow);
+      margin-top: 20px;
+    }
+    .deals-table thead th {
+      text-align: left;
+      padding: 12px 16px;
+      background: var(--surface-alt);
+      color: var(--text-muted);
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .deals-table td {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border-light);
+      vertical-align: middle;
+      white-space: nowrap;
+    }
+    .deals-table tbody tr { cursor: pointer; transition: background 0.1s; }
+    .deals-table tbody tr:hover { background: #f8fafc; }
+    .deals-table tbody tr:last-child td { border-bottom: none; }
+
+    /* ===== BADGES ===== */
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .badge-matched { background: var(--green-bg); color: var(--green); }
+    .badge-multi_match { background: var(--yellow-bg); color: var(--yellow); }
+    .badge-no_match { background: var(--surface-alt); color: var(--text-light); }
+    .badge-pending { background: var(--surface-alt); color: var(--text-light); }
+    .badge-confirmed { background: var(--blue-bg); color: var(--accent); }
+    .badge-dismissed { background: var(--red-bg); color: var(--red); }
+    .badge-exact { background: var(--green-bg); color: var(--green); }
+    .badge-high { background: var(--green-bg); color: var(--green); }
+    .badge-medium { background: var(--yellow-bg); color: var(--yellow); }
+    .badge-low { background: var(--red-bg); color: var(--red); }
+
+    .row-no-match td { color: var(--text-light); }
+
+    /* ===== DETAIL PANEL ===== */
+    .detail-row td { padding: 0 !important; background: var(--surface-alt) !important; }
+    .detail-panel { padding: 24px 32px; }
+
+    .detail-row-layout {
+      display: flex;
+      gap: 24px;
+      align-items: flex-start;
+    }
+    .detail-subject {
+      flex: 0 0 300px;
+      min-width: 0;
+    }
+    .detail-candidates {
+      flex: 1;
+      min-width: 0;
+    }
+    .detail-post pre {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 14px;
+      border-radius: var(--radius);
+      font-family: inherit;
+      font-size: 12px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 260px;
+      overflow-y: auto;
+      color: var(--text);
+    }
+    .detail-poster {
+      margin-top: 6px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .detail-poster a { color: var(--accent); text-decoration: none; }
+    .detail-poster a:hover { text-decoration: underline; }
+
+    .detail-images {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .detail-images img {
+      width: 100px;
+      height: 75px;
+      object-fit: cover;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: transform 0.15s;
+    }
+    .detail-images img:hover { transform: scale(1.05); }
+
+    .section-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-muted);
+      margin-bottom: 14px;
+    }
+
+    /* ===== CANDIDATES ===== */
+    .candidates-list {
+      list-style: none;
+      display: flex;
+      gap: 12px;
+      overflow-x: auto;
+      padding-bottom: 8px;
+    }
+    .candidates-list li {
+      flex: 1 1 0;
+      min-width: 220px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      box-shadow: var(--shadow-sm);
+      transition: box-shadow 0.15s, border-color 0.15s;
+    }
+    .candidates-list li:hover {
+      border-color: var(--accent);
+      box-shadow: 0 2px 8px rgba(59,130,246,0.12);
+    }
+    .candidates-list .addr {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--accent);
+      text-decoration: none;
+      transition: color 0.15s;
+    }
+    .candidates-list .addr:hover { color: var(--accent-hover); text-decoration: underline; }
+    .candidates-list .meta { color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+
+    .candidate-detail { display: flex; gap: 12px; align-items: flex-start; }
+    .streetview-thumb {
+      flex-shrink: 0;
+      border-radius: 4px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      cursor: pointer;
+    }
+    .streetview-thumb img {
+      width: 100px;
+      height: 60px;
+      object-fit: cover;
+      display: block;
+      transition: opacity 0.15s;
+    }
+    .streetview-thumb img:hover { opacity: 0.85; }
+
+    /* ===== COMPARE OVERLAY ===== */
+    .compare-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .compare-overlay.open { opacity: 1; }
+    .compare-panel {
+      background: var(--surface);
+      border-radius: 12px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      max-width: 90vw;
+      max-height: 90vh;
+      overflow-y: auto;
+      padding: 24px;
+      position: relative;
+    }
+    .compare-close {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 20px;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1;
+    }
+    .compare-close:hover { background: var(--border); }
+    .compare-nav {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      background: rgba(0,0,0,0.5);
+      border: none;
+      color: #fff;
+      font-size: 28px;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 2;
+      transition: background 0.15s;
+    }
+    .compare-nav:hover { background: rgba(0,0,0,0.7); }
+    .compare-prev { left: 12px; }
+    .compare-next { right: 12px; }
+    .compare-header { display: flex; gap: 24px; margin-bottom: 12px; }
+    .compare-header .compare-title { flex: 1; font-size: 15px; font-weight: 700; color: var(--text); }
+    .compare-counter { text-align: center; font-size: 12px; color: var(--text-light); margin-bottom: 8px; }
+    .compare-images { display: flex; gap: 16px; }
+    .compare-side { flex: 1; min-width: 0; }
+    .compare-side img {
+      width: 100%;
+      max-height: 50vh;
+      object-fit: contain;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #f8fafc;
+    }
+    .compare-no-img {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 300px;
+      background: var(--surface-alt);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      color: var(--text-light);
+      font-size: 14px;
+    }
+    .compare-thumbs { display: flex; gap: 6px; margin-top: 10px; overflow-x: auto; }
+    .compare-thumbs img {
+      width: 60px;
+      height: 45px;
+      object-fit: cover;
+      border-radius: 4px;
+      border: 2px solid transparent;
+      cursor: pointer;
+      opacity: 0.6;
+      transition: all 0.15s;
+    }
+    .compare-thumbs img.active,
+    .compare-thumbs img:hover { border-color: var(--accent); opacity: 1; }
+
+    /* ===== LIGHTBOX ===== */
+    .lightbox {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.85);
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: zoom-out;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .lightbox.open { opacity: 1; }
+    .lightbox img {
+      max-width: 90vw;
+      max-height: 90vh;
+      border-radius: 8px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+    .lightbox-close {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      background: rgba(255,255,255,0.15);
+      border: none;
+      color: #fff;
+      font-size: 24px;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .lightbox-close:hover { background: rgba(255,255,255,0.3); }
+    .lightbox-nav {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      background: rgba(255,255,255,0.15);
+      border: none;
+      color: #fff;
+      font-size: 32px;
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s;
+    }
+    .lightbox-nav:hover { background: rgba(255,255,255,0.3); }
+    .lightbox-prev { left: 20px; }
+    .lightbox-next { right: 20px; }
+    .lightbox-counter {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: rgba(255,255,255,0.7);
+      font-size: 13px;
+    }
+
+    /* ===== PAGINATION ===== */
+    .pagination {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 8px;
+      padding: 20px 0;
+    }
+    .pagination button {
+      padding: 8px 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.15s;
+    }
+    .pagination button:hover:not(:disabled) {
+      background: var(--surface-alt);
+      border-color: var(--accent);
+    }
+    .pagination button:disabled { opacity: 0.4; cursor: default; }
+    .pagination .page-info { padding: 0 8px; color: var(--text-muted); font-size: 13px; }
+
+    /* ===== LOADING ===== */
+    .loading {
+      text-align: center;
+      padding: 60px 0;
+      color: var(--text-muted);
+      font-size: 15px;
+    }
+    .loading .spinner {
+      display: inline-block;
+      width: 24px;
+      height: 24px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-bottom: 12px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @media (max-width: 1024px) {
+      .detail-row-layout { flex-direction: column; }
+      .detail-subject { flex: 1 1 auto; }
+      .candidates-list { flex-direction: column; }
+      .candidates-list li { min-width: 100%; }
+      .topbar { padding: 12px 16px; }
+      .filter-bar { padding: 12px 16px; }
+      .table-wrap { padding: 0 16px 24px; }
+      .kpi-bar { padding: 12px 16px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="topbar">
+    <div>
+      <h1>Off Market Radar</h1>
+      <span class="subtitle">Deal Lead Tracker</span>
+    </div>
+    <div class="topbar-right">
+      <span class="last-sync" id="lastSync"></span>
+      <button onclick="openSettings()" title="Settings" style="background:none;border:none;cursor:pointer;font-size:18px;color:var(--text-muted);padding:4px;">&#9881;</button>
+    </div>
+  </div>
+
+  <div class="kpi-bar" id="kpiBar"></div>
+
+  <div class="filter-bar">
+    <span class="filter-label">Status:</span>
+    <select id="statusFilter">
+      <option value="matches" selected>All Matches</option>
+      <option value="all">All</option>
+      <option value="matched">Matched</option>
+      <option value="multi_match">Multi-Match</option>
+      <option value="confirmed">Confirmed</option>
+      <option value="no_match">No Match</option>
+      <option value="pending">Pending</option>
+    </select>
+    <span class="deal-count" id="dealCount"></span>
+  </div>
+
+  <div class="table-wrap">
+    <div class="loading" id="loadingState">
+      <div class="spinner"></div>
+      <div>Loading deals...</div>
+    </div>
+
+    <table class="deals-table" id="dealsTable" style="display:none">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Group</th>
+          <th>Parsed Address</th>
+          <th>Resolved Address</th>
+          <th>Beds/Bath/SqFt</th>
+          <th>Price</th>
+          <th>Status</th>
+          <th>#</th>
+          <th>Confidence</th>
+        </tr>
+      </thead>
+      <tbody id="dealsBody"></tbody>
+    </table>
+
+    <div class="pagination" id="pagination"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

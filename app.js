@@ -1941,6 +1941,7 @@ async function loadTeamActivity() {
 
     // Render
     var sessionTableRows = sessionRows.slice(0, 100).map(function(r) {
+      var mph = r.durationMin > 0 ? (r.uniqueMatches / (r.durationMin / 60)).toFixed(1) : '0';
       return '<tr>' +
         '<td style="font-weight:600;">' + escapeHtml(r.collector) + '</td>' +
         '<td>' + formatDate(r.start.toISOString()) + '</td>' +
@@ -1948,6 +1949,7 @@ async function loadTeamActivity() {
         '<td style="font-weight:600;">' + fmtDuration(r.durationMin) + '</td>' +
         '<td>' + r.totalPosts + '</td>' +
         '<td style="color:var(--green);font-weight:600;">' + r.uniqueMatches + '</td>' +
+        '<td style="color:var(--accent);font-weight:600;">' + mph + '</td>' +
       '</tr>';
     }).join('');
 
@@ -1994,8 +1996,9 @@ async function loadTeamActivity() {
           '<th>Duration</th>' +
           '<th>Posts Scanned</th>' +
           '<th>Unique Matches</th>' +
+          '<th>Matches/Hour</th>' +
         '</tr></thead>' +
-        '<tbody>' + (sessionTableRows || '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:40px;">No sessions found</td></tr>') + '</tbody>' +
+        '<tbody>' + (sessionTableRows || '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:40px;">No sessions found</td></tr>') + '</tbody>' +
       '</table>' +
     '</div>' +
 

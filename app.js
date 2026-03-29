@@ -446,11 +446,17 @@ async function loadKPIs() {
     });
     counts.total = total;
 
-    // Get status counts + GMV data in parallel
+    // Get status counts + GMV data + wholesaler count in parallel
     const gmvPromise = supabaseGet('fb_deal_posts', {
       select: 'parsed_arv,parsed_asking_price,matched_address',
       filters: [{ col: 'match_status', val: 'in.(matched,multi_match,confirmed)' }],
       limit: 5000,
+    });
+
+    const wholesalerPromise = supabaseGet('fb_deal_posts', {
+      select: 'poster_name',
+      filters: [{ col: 'match_status', val: 'neq.pending' }],
+      limit: 10000,
     });
 
     await Promise.all(statuses.map(async (s) => {
@@ -471,6 +477,10 @@ async function loadKPIs() {
       if (val) gmv += Number(val);
     }
     const gmvDisplay = gmv >= 1000000 ? '$' + (gmv / 1000000).toFixed(1) + 'M' : gmv >= 1000 ? '$' + (gmv / 1000).toFixed(0) + 'K' : '$' + gmv;
+
+    // Count unique wholesalers (clean poster names)
+    const { data: wholesalerData } = await wholesalerPromise;
+    const uniqueWholesalers = new Set(wholesalerData.map(d => cleanPosterName(d.poster_name || 'Unknown'))).size;
 
     const processed = (counts.total || 0) - (counts.pending || 0);
 
@@ -504,6 +514,11 @@ async function loadKPIs() {
         <div class="kpi-glow"></div>
         <div class="kpi-value">${gmvDisplay}</div>
         <div class="kpi-label">Pipeline GMV</div>
+      </div>
+      <div class="kpi-card purple">
+        <div class="kpi-glow"></div>
+        <div class="kpi-value">${uniqueWholesalers.toLocaleString()}</div>
+        <div class="kpi-label">Wholesalers</div>
       </div>
     `;
   } catch (err) {

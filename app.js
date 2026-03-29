@@ -1760,27 +1760,27 @@ async function loadOutreach() {
     // Classify posts
     const commentPosts = [];
     const dmPosts = [];
+    const otherPosts = [];
 
     for (const post of allPosts) {
       const text = Array.isArray(post.post_text) ? post.post_text.join(' ') : (post.post_text || '');
       const isComment = COMMENT_PATTERN.test(text);
       const isDM = DM_PATTERN.test(text);
-      // A post can match both — put in both lists
       if (isComment) commentPosts.push(post);
       if (isDM) dmPosts.push(post);
+      if (!isComment && !isDM) otherPosts.push(post);
     }
 
-    renderOutreach(container, commentPosts, dmPosts, allPosts.length);
+    renderOutreach(container, commentPosts, dmPosts, otherPosts, allPosts.length);
   } catch (err) {
     console.error('Failed to load outreach:', err);
     container.innerHTML = `<div style="color:var(--red);text-align:center;padding:40px;">Failed to load outreach: ${escapeHtml(err.message)}</div>`;
   }
 }
 
-function renderOutreach(container, commentPosts, dmPosts, totalNoMatch) {
-  const activeComments = outreachTab === 'comments';
-  const posts = activeComments ? commentPosts : dmPosts;
-  const actionLabel = activeComments ? 'Comment' : 'DM';
+function renderOutreach(container, commentPosts, dmPosts, otherPosts, totalNoMatch) {
+  const posts = outreachTab === 'comments' ? commentPosts : outreachTab === 'dms' ? dmPosts : otherPosts;
+  const actionLabel = outreachTab === 'comments' ? 'Comment' : outreachTab === 'dms' ? 'DM' : 'Other';
 
   // Build cards HTML
   let cardsHtml = '';
@@ -1788,7 +1788,7 @@ function renderOutreach(container, commentPosts, dmPosts, totalNoMatch) {
     cardsHtml = '<div style="text-align:center;padding:60px 20px;color:var(--text-muted);">' +
       '<div style="font-size:36px;margin-bottom:12px;">📭</div>' +
       '<div style="font-size:16px;font-weight:600;">No ' + actionLabel.toLowerCase() + ' opportunities found</div>' +
-      '<div style="font-size:13px;margin-top:6px;">Posts that ask for ' + (activeComments ? 'comments or emails' : 'DMs or private messages') + ' will appear here.</div>' +
+      '<div style="font-size:13px;margin-top:6px;">Posts will appear here.</div>' +
       '</div>';
   } else {
     const cardItems = posts.map(function(post) {
@@ -1810,9 +1810,9 @@ function renderOutreach(container, commentPosts, dmPosts, totalNoMatch) {
 
       // Build intro message for clipboard
       const addrSnippet = post.parsed_full_address || loc || 'this property';
-      const introText = activeComments
-        ? 'Hi ' + posterName + ', I\'m interested in ' + addrSnippet + (ask ? ' (' + ask + ')' : '') + '. Could you send me the details? You can reach me at offmarket@rebuilt.com. Thanks!'
-        : 'Hey ' + posterName + ', I saw your post about ' + addrSnippet + (ask ? ' at ' + ask : '') + '. I\'d love to get more details. Feel free to reach me here or at offmarket@rebuilt.com. Thanks!';
+      const introText = outreachTab === 'dms'
+        ? 'Hey ' + posterName + ', I saw your post about ' + addrSnippet + (ask ? ' at ' + ask : '') + '. I\'d love to get more details. Feel free to reach me here or at offmarket@rebuilt.com. Thanks!'
+        : 'Hi ' + posterName + ', I\'m interested in ' + addrSnippet + (ask ? ' (' + ask + ')' : '') + '. Could you send me the details? You can reach me at offmarket@rebuilt.com. Thanks!';
 
       // Store intro in a data attribute (safe encoding)
       const introData = introText.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -1836,7 +1836,11 @@ function renderOutreach(container, commentPosts, dmPosts, totalNoMatch) {
         askBadge = '<span style="padding:6px 12px;border-radius:6px;background:rgba(34,197,94,0.1);color:var(--green);font-size:12px;font-weight:600;">' + ask + '</span>';
       }
 
-      return '<div class="outreach-card" data-intro="' + introData + '" onclick="copyOutreachIntro(this)" title="Click to copy intro to clipboard" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;transition:border-color 0.15s;cursor:pointer;">' +
+      var copyBtn = '<button onclick="event.stopPropagation(); copyOutreachIntro(this.closest(\'.outreach-card\'))" style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border-radius:6px;background:var(--green);color:#000;border:none;text-decoration:none;font-size:12px;font-weight:600;cursor:pointer;transition:opacity 0.15s;" onmouseover="this.style.opacity=0.8" onmouseout="this.style.opacity=1">' +
+        '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>' +
+        'Copy Intro</button>';
+
+      return '<div class="outreach-card" data-intro="' + introData + '" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;transition:border-color 0.15s;">' +
         '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">' +
           '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
             '<div style="width:36px;height:36px;border-radius:8px;background:linear-gradient(135deg,var(--accent),var(--purple));display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:#fff;flex-shrink:0;">' + (posterName[0] || '?').toUpperCase() + '</div>' +
@@ -1845,7 +1849,7 @@ function renderOutreach(container, commentPosts, dmPosts, totalNoMatch) {
               '<div style="font-size:11px;color:var(--text-muted);">' + escapeHtml(post.group_name || '') + (loc ? ' · ' + loc : '') + ' · ' + date + '</div>' +
             '</div>' +
           '</div>' +
-          '<div style="display:flex;gap:6px;flex-shrink:0;">' + viewPostBtn + dmBtn + askBadge + '</div>' +
+          '<div style="display:flex;gap:6px;flex-shrink:0;">' + copyBtn + viewPostBtn + dmBtn + askBadge + '</div>' +
         '</div>' +
         '<pre style="white-space:pre-wrap;word-break:break-word;font-size:13px;line-height:1.6;color:var(--text-light);margin:0;font-family:inherit;background:var(--bg);border-radius:8px;padding:12px;">' + escapeHtml(truncated) + '</pre>' +
       '</div>';
@@ -1878,23 +1882,32 @@ function renderOutreach(container, commentPosts, dmPosts, totalNoMatch) {
     </div>
 
     <div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--border);">
-      <button id="outreachTabComments" onclick="switchOutreachTab('comments')" style="
+      <button onclick="switchOutreachTab('comments')" style="
         padding:10px 24px;font-size:14px;font-weight:600;cursor:pointer;border:none;background:none;
-        color:${activeComments ? 'var(--accent)' : 'var(--text-muted)'};
-        border-bottom:2px solid ${activeComments ? 'var(--accent)' : 'transparent'};
+        color:${outreachTab === 'comments' ? 'var(--accent)' : 'var(--text-muted)'};
+        border-bottom:2px solid ${outreachTab === 'comments' ? 'var(--accent)' : 'transparent'};
         margin-bottom:-2px;transition:all 0.15s;
       ">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px;"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
         Comments (${commentPosts.length})
       </button>
-      <button id="outreachTabDMs" onclick="switchOutreachTab('dms')" style="
+      <button onclick="switchOutreachTab('dms')" style="
         padding:10px 24px;font-size:14px;font-weight:600;cursor:pointer;border:none;background:none;
-        color:${!activeComments ? 'var(--purple)' : 'var(--text-muted)'};
-        border-bottom:2px solid ${!activeComments ? 'var(--purple)' : 'transparent'};
+        color:${outreachTab === 'dms' ? 'var(--purple)' : 'var(--text-muted)'};
+        border-bottom:2px solid ${outreachTab === 'dms' ? 'var(--purple)' : 'transparent'};
         margin-bottom:-2px;transition:all 0.15s;
       ">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px;"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
         Direct Messages (${dmPosts.length})
+      </button>
+      <button onclick="switchOutreachTab('other')" style="
+        padding:10px 24px;font-size:14px;font-weight:600;cursor:pointer;border:none;background:none;
+        color:${outreachTab === 'other' ? 'var(--yellow)' : 'var(--text-muted)'};
+        border-bottom:2px solid ${outreachTab === 'other' ? 'var(--yellow)' : 'transparent'};
+        margin-bottom:-2px;transition:all 0.15s;
+      ">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        Other (${otherPosts.length})
       </button>
     </div>
     ${cardsHtml}
@@ -1903,6 +1916,7 @@ function renderOutreach(container, commentPosts, dmPosts, totalNoMatch) {
   // Store references for tab switching
   container._commentPosts = commentPosts;
   container._dmPosts = dmPosts;
+  container._otherPosts = otherPosts;
   container._totalNoMatch = totalNoMatch;
 }
 
@@ -1932,7 +1946,7 @@ function switchOutreachTab(tab) {
   outreachTab = tab;
   const container = document.getElementById('outreachContent');
   if (container._commentPosts) {
-    renderOutreach(container, container._commentPosts, container._dmPosts, container._totalNoMatch);
+    renderOutreach(container, container._commentPosts, container._dmPosts, container._otherPosts, container._totalNoMatch);
   }
 }
 

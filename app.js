@@ -1301,21 +1301,18 @@ function renderSources() {
           </tr>
         </thead>
         <tbody>
-          ${sourcesCollectors.map(c => {
-            const isLatest = c.version === LATEST_SCRAPER_VERSION;
-            const versionColor = !c.version ? 'var(--text-muted)' : isLatest ? 'var(--green)' : 'var(--red)';
-            const versionLabel = !c.version ? 'Unknown' : c.version;
-            const badge = !c.version ? '' : isLatest ? ' ✓' : ' ⚠ Update needed';
-            const lastAct = c.lastActive ? new Date(c.lastActive).toLocaleDateString() : '—';
-            return \`
-            <tr>
-              <td style="font-weight:600;">\${escapeHtml(c.name)}</td>
-              <td>\${c.total.toLocaleString()}</td>
-              <td>\${lastAct}</td>
-              <td>
-                <span style="font-weight:600;color:\${versionColor}">v\${versionLabel}\${badge}</span>
-              </td>
-            </tr>\`;
+          ${sourcesCollectors.map(function(c) {
+            var isLatest = c.version === LATEST_SCRAPER_VERSION;
+            var vColor = !c.version ? 'var(--text-muted)' : isLatest ? 'var(--green)' : 'var(--red)';
+            var vLabel = !c.version ? 'Unknown' : c.version;
+            var vBadge = !c.version ? '' : isLatest ? ' ✓' : ' ⚠ Update needed';
+            var lastAct = c.lastActive ? new Date(c.lastActive).toLocaleDateString() : '—';
+            return '<tr>' +
+              '<td style="font-weight:600;">' + escapeHtml(c.name) + '</td>' +
+              '<td>' + c.total.toLocaleString() + '</td>' +
+              '<td>' + lastAct + '</td>' +
+              '<td><span style="font-weight:600;color:' + vColor + '">v' + vLabel + vBadge + '</span></td>' +
+            '</tr>';
           }).join('')}
         </tbody>
       </table>
@@ -1717,6 +1714,77 @@ function renderOutreach(container, commentPosts, dmPosts, totalNoMatch) {
   const posts = activeComments ? commentPosts : dmPosts;
   const actionLabel = activeComments ? 'Comment' : 'DM';
 
+  // Build cards HTML
+  let cardsHtml = '';
+  if (posts.length === 0) {
+    cardsHtml = '<div style="text-align:center;padding:60px 20px;color:var(--text-muted);">' +
+      '<div style="font-size:36px;margin-bottom:12px;">📭</div>' +
+      '<div style="font-size:16px;font-weight:600;">No ' + actionLabel.toLowerCase() + ' opportunities found</div>' +
+      '<div style="font-size:13px;margin-top:6px;">Posts that ask for ' + (activeComments ? 'comments or emails' : 'DMs or private messages') + ' will appear here.</div>' +
+      '</div>';
+  } else {
+    const cardItems = posts.map(function(post) {
+      const text = Array.isArray(post.post_text) ? post.post_text.join('\n') : (post.post_text || '');
+      const posterName = cleanPosterName(post.poster_name || 'Unknown');
+      const truncated = text.length > 400 ? text.substring(0, 400) + '...' : text;
+      const date = formatDate(post.captured_at);
+      const city = post.parsed_city || '';
+      const state = post.parsed_state || '';
+      const loc = [city, state].filter(Boolean).join(', ');
+      const ask = post.parsed_asking_price ? '$' + Number(post.parsed_asking_price).toLocaleString() : '';
+
+      // Look up wholesaler contact info from localStorage
+      const contactKey = 'omr_contact_' + safeBtoa(posterName);
+      var saved = {};
+      try { saved = JSON.parse(localStorage.getItem(contactKey) || '{}'); } catch(e) {}
+      const fbUrl = saved.facebook || '';
+      const dmUrl = fbUrl ? fbUrl.replace(/\/$/, '') + '/messages' : '';
+
+      // Build intro message for clipboard
+      const addrSnippet = post.parsed_full_address || loc || 'this property';
+      const introText = activeComments
+        ? 'Hi ' + posterName + ', I\'m interested in ' + addrSnippet + (ask ? ' (' + ask + ')' : '') + '. Could you send me the details? You can reach me at offmarket@rebuilt.com. Thanks!'
+        : 'Hey ' + posterName + ', I saw your post about ' + addrSnippet + (ask ? ' at ' + ask : '') + '. I\'d love to get more details. Feel free to reach me here or at offmarket@rebuilt.com. Thanks!';
+
+      // Store intro in a data attribute (safe encoding)
+      const introData = introText.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+      var viewPostBtn = '';
+      if (post.post_url) {
+        viewPostBtn = '<a href="' + post.post_url + '" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border-radius:6px;background:var(--accent);color:#fff;text-decoration:none;font-size:12px;font-weight:600;transition:opacity 0.15s;" onmouseover="this.style.opacity=0.8" onmouseout="this.style.opacity=1">' +
+          '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>' +
+          'View Post</a>';
+      }
+
+      var dmBtn = '';
+      if (dmUrl) {
+        dmBtn = '<a href="' + dmUrl + '" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border-radius:6px;background:var(--purple);color:#fff;text-decoration:none;font-size:12px;font-weight:600;transition:opacity 0.15s;" onmouseover="this.style.opacity=0.8" onmouseout="this.style.opacity=1">' +
+          '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>' +
+          'Send DM</a>';
+      }
+
+      var askBadge = '';
+      if (ask) {
+        askBadge = '<span style="padding:6px 12px;border-radius:6px;background:rgba(34,197,94,0.1);color:var(--green);font-size:12px;font-weight:600;">' + ask + '</span>';
+      }
+
+      return '<div class="outreach-card" data-intro="' + introData + '" onclick="copyOutreachIntro(this)" title="Click to copy intro to clipboard" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;transition:border-color 0.15s;cursor:pointer;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">' +
+          '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
+            '<div style="width:36px;height:36px;border-radius:8px;background:linear-gradient(135deg,var(--accent),var(--purple));display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:#fff;flex-shrink:0;">' + (posterName[0] || '?').toUpperCase() + '</div>' +
+            '<div>' +
+              '<div style="font-weight:600;font-size:14px;">' + escapeHtml(posterName) + '</div>' +
+              '<div style="font-size:11px;color:var(--text-muted);">' + escapeHtml(post.group_name || '') + (loc ? ' · ' + loc : '') + ' · ' + date + '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div style="display:flex;gap:6px;flex-shrink:0;">' + viewPostBtn + dmBtn + askBadge + '</div>' +
+        '</div>' +
+        '<pre style="white-space:pre-wrap;word-break:break-word;font-size:13px;line-height:1.6;color:var(--text-light);margin:0;font-family:inherit;background:var(--bg);border-radius:8px;padding:12px;">' + escapeHtml(truncated) + '</pre>' +
+      '</div>';
+    });
+    cardsHtml = '<div id="outreachList" style="display:flex;flex-direction:column;gap:12px;">' + cardItems.join('') + '</div>';
+  }
+
   container.innerHTML = `
     <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px;">
       <div class="kpi-card red">
@@ -1761,66 +1829,7 @@ function renderOutreach(container, commentPosts, dmPosts, totalNoMatch) {
         Direct Messages (${dmPosts.length})
       </button>
     </div>
-
-    ${posts.length === 0 ? `
-      <div style="text-align:center;padding:60px 20px;color:var(--text-muted);">
-        <div style="font-size:36px;margin-bottom:12px;">📭</div>
-        <div style="font-size:16px;font-weight:600;">No ${actionLabel.toLowerCase()} opportunities found</div>
-        <div style="font-size:13px;margin-top:6px;">Posts that ask for ${activeComments ? 'comments or emails' : 'DMs or private messages'} will appear here.</div>
-      </div>
-    ` : `
-      <div id="outreachList" style="display:flex;flex-direction:column;gap:12px;">
-        ${posts.map(post => {
-          const text = Array.isArray(post.post_text) ? post.post_text.join('\n') : (post.post_text || '');
-          const posterName = cleanPosterName(post.poster_name || 'Unknown');
-          const truncated = text.length > 400 ? text.substring(0, 400) + '...' : text;
-          const date = formatDate(post.captured_at);
-          const city = post.parsed_city || '';
-          const state = post.parsed_state || '';
-          const location = [city, state].filter(Boolean).join(', ');
-          const ask = post.parsed_asking_price ? '$' + Number(post.parsed_asking_price).toLocaleString() : '';
-
-          // Look up wholesaler contact info from localStorage
-          const contactKey = 'omr_contact_' + safeBtoa(posterName);
-          let saved = {};
-          try { saved = JSON.parse(localStorage.getItem(contactKey) || '{}'); } catch(e) {}
-          const fbUrl = saved.facebook || '';
-          const dmUrl = fbUrl ? fbUrl.replace(/\\/$/, '') + '/messages' : '';
-
-          // Build intro message for clipboard
-          const addrSnippet = post.parsed_full_address || location || 'this property';
-          const introText = activeComments
-            ? \`Hi \${posterName}, I'm interested in \${addrSnippet}\${ask ? ' (' + ask + ')' : ''}. Could you send me the details? You can reach me at offmarket@rebuilt.com. Thanks!\`
-            : \`Hey \${posterName}, I saw your post about \${addrSnippet}\${ask ? ' at ' + ask : ''}. I'd love to get more details. Feel free to reach me here or at offmarket@rebuilt.com. Thanks!\`;
-          const introEncoded = introText.replace(/'/g, "\\\\'").replace(/"/g, '&quot;');
-
-          return \`
-          <div class="outreach-card" onclick="copyOutreachIntro(this, '\${introEncoded}')" title="Click to copy intro to clipboard" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;transition:border-color 0.15s;cursor:pointer;">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
-              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-                <div style="width:36px;height:36px;border-radius:8px;background:linear-gradient(135deg,var(--accent),var(--purple));display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:#fff;flex-shrink:0;">\${(posterName[0] || '?').toUpperCase()}</div>
-                <div>
-                  <div style="font-weight:600;font-size:14px;">\${escapeHtml(posterName)}</div>
-                  <div style="font-size:11px;color:var(--text-muted);">\${escapeHtml(post.group_name || '')} \${location ? '· ' + location : ''} · \${date}</div>
-                </div>
-              </div>
-              <div style="display:flex;gap:6px;flex-shrink:0;">
-                \${post.post_url ? \`<a href="\${post.post_url}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border-radius:6px;background:var(--accent);color:#fff;text-decoration:none;font-size:12px;font-weight:600;transition:opacity 0.15s;" onmouseover="this.style.opacity=0.8" onmouseout="this.style.opacity=1">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                  View Post
-                </a>\` : ''}
-                \${dmUrl ? \`<a href="\${dmUrl}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border-radius:6px;background:var(--purple);color:#fff;text-decoration:none;font-size:12px;font-weight:600;transition:opacity 0.15s;" onmouseover="this.style.opacity=0.8" onmouseout="this.style.opacity=1">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-                  Send DM
-                </a>\` : ''}
-                \${ask ? \`<span style="padding:6px 12px;border-radius:6px;background:rgba(34,197,94,0.1);color:var(--green);font-size:12px;font-weight:600;">\${ask}</span>\` : ''}
-              </div>
-            </div>
-            <pre style="white-space:pre-wrap;word-break:break-word;font-size:13px;line-height:1.6;color:var(--text-light);margin:0;font-family:inherit;background:var(--bg);border-radius:8px;padding:12px;">\${escapeHtml(truncated)}</pre>
-          </div>\`;
-        }).join('')}
-      </div>
-    `}
+    ${cardsHtml}
   `;
 
   // Store references for tab switching
@@ -1829,10 +1838,11 @@ function renderOutreach(container, commentPosts, dmPosts, totalNoMatch) {
   container._totalNoMatch = totalNoMatch;
 }
 
-function copyOutreachIntro(cardEl, text) {
+function copyOutreachIntro(cardEl) {
   // Don't copy if they clicked a link/button
   if (event && (event.target.closest('a') || event.target.closest('button'))) return;
-  const decoded = text.replace(/&quot;/g, '"').replace(/\\'/g, "'");
+  const raw = cardEl.dataset.intro || '';
+  const decoded = raw.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
   navigator.clipboard.writeText(decoded).then(() => {
     // Flash green border to confirm
     cardEl.style.borderColor = 'var(--green)';

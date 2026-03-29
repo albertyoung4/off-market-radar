@@ -1157,7 +1157,7 @@ async function renderWholesalerMap(deals) {
 // ===== SOURCES =====
 let sourcesData = [];
 let sourcesCollectors = [];
-const LATEST_SCRAPER_VERSION = '1.2.0';
+const LATEST_SCRAPER_VERSION = '1.3.0';
 
 async function loadSources() {
   const container = document.getElementById('sourcesContent');
@@ -1705,10 +1705,13 @@ function renderScraperPage() {
         <div style="font-size:13px;color:var(--text-light);line-height:1.8;">
           <strong>What's new in v${LATEST_SCRAPER_VERSION}:</strong>
           <ul style="margin:8px 0 0 20px;padding:0;">
+            <li>Wholesaler profiles captured for all deal posts — even when address can't be matched</li>
+            <li>Improved poster name/profile detection with multiple fallback strategies</li>
+            <li>Contact info (phone/email) extracted and linked to poster profiles automatically</li>
+            <li>Poster matching by phone or email when name/URL not available</li>
             <li>Collector name required before scraping can start</li>
             <li>Version tracking — see who's up to date on the Sources page</li>
             <li>Broader Facebook post URL capture (fewer missing post links)</li>
-            <li>Fixed timestamp extraction bug ("May be an image..." no longer matched as a date)</li>
           </ul>
         </div>
       </div>

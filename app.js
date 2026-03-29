@@ -1134,7 +1134,7 @@ async function renderWholesalerMap(deals) {
 // ===== SOURCES =====
 let sourcesData = [];
 let sourcesCollectors = [];
-const LATEST_SCRAPER_VERSION = '1.1.0';
+const LATEST_SCRAPER_VERSION = '1.2.0';
 
 async function loadSources() {
   const container = document.getElementById('sourcesContent');

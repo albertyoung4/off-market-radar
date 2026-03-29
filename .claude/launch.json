@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "off-market-radar",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "-l", "3456", "/Users/alyoung/Documents/claude code/off-market-radar"],
+      "port": 3456
+    }
+  ]
+}

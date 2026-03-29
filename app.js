@@ -10,6 +10,36 @@ let allDeals = [];
 let totalCount = 0;
 let currentView = 'dashboard';
 
+// ===== DEDUPLICATION & PROPERTY DATA HELPERS =====
+// Deduplicate deals by matched_address, keeping the first (most recent) occurrence
+function deduplicateDeals(deals) {
+  const seen = new Set();
+  return deals.filter(d => {
+    const addr = (d.matched_address || '').toUpperCase().trim();
+    if (!addr) return true; // keep unmatched deals as-is
+    if (seen.has(addr)) return false;
+    seen.add(addr);
+    return true;
+  });
+}
+
+// Backfill beds/baths/sqft from match_candidates when parsed fields are empty
+function backfillPropertyData(deal) {
+  const c = deal.match_candidates?.[0];
+  if (!c) return deal;
+  return {
+    ...deal,
+    parsed_beds: deal.parsed_beds || c.bedrooms_count || null,
+    parsed_baths: deal.parsed_baths || c.bath_count || null,
+    parsed_sqft: deal.parsed_sqft || c.area_building || c.living_area_size || null,
+  };
+}
+
+// Apply both: backfill then dedup
+function cleanDeals(deals) {
+  return deduplicateDeals(deals.map(backfillPropertyData));
+}
+
 // Safe base64 encoding that handles Unicode characters
 function safeBtoa(str) {
   try {
@@ -140,9 +170,9 @@ async function loadDashboardDeals() {
       offset: 0,
     });
 
-    allDeals = data;
+    allDeals = cleanDeals(data);
     totalCount = count;
-    renderDealsToTable(data, 'dashDealsBody');
+    renderDealsToTable(allDeals, 'dashDealsBody');
     renderPaginationTo('dashPagination', count, 0);
 
     document.getElementById('dashLoadingState').style.display = 'none';
@@ -190,9 +220,11 @@ async function loadDashMap() {
       limit: 1000,
     });
 
+    // Deduplicate and backfill
+    const cleaned = cleanDeals(data);
     // Build unique city list for geocoding
     const cityDeals = {};
-    for (const deal of data) {
+    for (const deal of cleaned) {
       const c = deal.match_candidates?.[0];
       const city = c?.property_address_city || deal.parsed_city || '';
       const state = c?.property_address_state || deal.parsed_state || '';
@@ -339,9 +371,9 @@ async function loadDeals() {
       offset,
     });
 
-    allDeals = data;
+    allDeals = cleanDeals(data);
     totalCount = count;
-    renderDealsToTable(data, 'dealsBody');
+    renderDealsToTable(allDeals, 'dealsBody');
     renderPaginationTo('pagination', count, currentPage);
 
     document.getElementById('loadingState').style.display = 'none';
@@ -368,7 +400,7 @@ async function loadKPIs() {
 
     // Get status counts + GMV data in parallel
     const gmvPromise = supabaseGet('fb_deal_posts', {
-      select: 'parsed_arv,parsed_asking_price',
+      select: 'parsed_arv,parsed_asking_price,matched_address',
       filters: [{ col: 'match_status', val: 'in.(matched,multi_match,confirmed)' }],
       limit: 5000,
     });
@@ -382,8 +414,9 @@ async function loadKPIs() {
       counts[s] = count;
     }));
 
-    // Calculate GMV (prefer ARV, fallback to asking price)
-    const { data: gmvData } = await gmvPromise;
+    // Calculate GMV (prefer ARV, fallback to asking price) - dedup by matched address
+    const { data: gmvRaw } = await gmvPromise;
+    const gmvData = deduplicateDeals(gmvRaw);
     let gmv = 0;
     for (const d of gmvData) {
       const val = d.parsed_arv || d.parsed_asking_price;
@@ -456,7 +489,7 @@ async function loadWholesalers() {
 
     while (keepGoing) {
       const { data, count } = await supabaseGet('fb_deal_posts', {
-        select: 'poster_name,group_name,match_status,captured_at,parsed_asking_price',
+        select: 'poster_name,group_name,match_status,captured_at,parsed_asking_price,matched_address',
         filters: [{ col: 'match_status', val: 'neq.pending' }],
         order: 'captured_at.desc',
         limit: batchSize,
@@ -467,9 +500,12 @@ async function loadWholesalers() {
       if (data.length < batchSize || allPosts.length >= count) keepGoing = false;
     }
 
+    // Deduplicate deals across all wholesalers
+    const dedupedPosts = deduplicateDeals(allPosts);
+
     // Aggregate by poster_name (clean up scraper artifacts like "· Follow")
     const map = {};
-    for (const post of allPosts) {
+    for (const post of dedupedPosts) {
       const name = cleanPosterName(post.poster_name || 'Unknown');
       const rawName = post.poster_name || 'Unknown';
       if (!map[name]) {
@@ -750,10 +786,11 @@ async function openWholesalerDetail(name) {
       if (data.length < batchSize || allPosts.length >= (count || 0)) keepGoing = false;
     }
 
-    const totalCount = allPosts.length;
-    wholesalerDeals = allPosts;
+    const cleanedPosts = cleanDeals(allPosts);
+    const totalCount = cleanedPosts.length;
+    wholesalerDeals = cleanedPosts;
 
-    // Extract contact info from post texts
+    // Extract contact info from post texts (use raw allPosts to find all contacts)
     const extracted = extractContactInfo(allPosts);
 
     // Find wholesaler stats
@@ -770,7 +807,7 @@ async function openWholesalerDetail(name) {
     const inputStyle = 'width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:inherit;background:var(--surface);color:var(--text);outline:none;';
 
     // Filter matched deals for map and table
-    const matchedDeals = allPosts.filter(d => d.match_status === 'matched' || d.match_status === 'multi_match');
+    const matchedDeals = cleanedPosts.filter(d => d.match_status === 'matched' || d.match_status === 'multi_match');
 
     // Calculate GMV from matched deals
     let gmv = 0;
@@ -1208,7 +1245,7 @@ async function loadDealFlow() {
 
     while (keepGoing) {
       const { data, count } = await supabaseGet('fb_deal_posts', {
-        select: 'match_status,captured_at',
+        select: 'match_status,captured_at,matched_address',
         filters: [{ col: 'match_status', val: 'neq.pending' }],
         order: 'captured_at.asc',
         limit: batchSize,
@@ -1219,9 +1256,12 @@ async function loadDealFlow() {
       if (data.length < batchSize || allPosts.length >= count) keepGoing = false;
     }
 
+    // Deduplicate deals
+    const dedupedPosts = deduplicateDeals(allPosts);
+
     // Group by day
     const dailyMap = {};
-    for (const post of allPosts) {
+    for (const post of dedupedPosts) {
       const d = new Date(post.captured_at);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       if (!dailyMap[key]) dailyMap[key] = { date: key, total: 0, matched: 0, noMatch: 0 };
@@ -1252,8 +1292,8 @@ async function loadDealFlow() {
     const maxWeekly = Math.max(...weeks.map(w => w.total), 1);
 
     // Total stats
-    const totalDeals = allPosts.length;
-    const totalMatched = allPosts.filter(p => ['matched', 'multi_match', 'confirmed'].includes(p.match_status)).length;
+    const totalDeals = dedupedPosts.length;
+    const totalMatched = dedupedPosts.filter(p => ['matched', 'multi_match', 'confirmed'].includes(p.match_status)).length;
     const avgDaily = days.length > 0 ? Math.round(totalDeals / days.length) : 0;
 
     container.innerHTML = `
@@ -1372,11 +1412,14 @@ async function loadMarkets() {
       if (data.length < batchSize || allPosts.length >= count) keepGoing = false;
     }
 
+    // Deduplicate deals
+    const dedupedPosts = deduplicateDeals(allPosts);
+
     // Aggregate by city+state - exclude junk/pending, only real deal posts
     // Match rate = unique matched addresses / unique total posts
     const cityMap = {};
     const stateMap = {};
-    for (const post of allPosts) {
+    for (const post of dedupedPosts) {
       const city = post.parsed_city;
       const state = post.parsed_state;
       if (!city || !state || city.toLowerCase() === 'unknown') continue;

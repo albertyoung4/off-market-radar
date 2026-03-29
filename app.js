@@ -99,6 +99,7 @@ function switchView(view) {
     wholesalers: 'Wholesaler Directory',
     sources: 'Deal Source Catalog',
     outreach: 'Outreach',
+    scraper: 'Get Scraper',
     team: 'Team Activity',
   };
   const headerEl = document.getElementById('headerTitle');
@@ -128,6 +129,9 @@ function switchView(view) {
   }
   if (view === 'outreach') {
     loadOutreach();
+  }
+  if (view === 'scraper') {
+    renderScraperPage();
   }
 }
 
@@ -1655,6 +1659,70 @@ async function loadMarkets() {
     console.error('Failed to load markets:', err);
     container.innerHTML = `<div style="color:var(--red);text-align:center;padding:40px;">Failed to load markets: ${escapeHtml(err.message)}</div>`;
   }
+}
+
+// ===== SCRAPER DOWNLOAD =====
+function renderScraperPage() {
+  const container = document.getElementById('scraperContent');
+  if (!container) return;
+
+  container.innerHTML = `
+    <div style="max-width:640px;margin:0 auto;padding:40px 20px;">
+      <div style="text-align:center;margin-bottom:40px;">
+        <div style="width:80px;height:80px;border-radius:20px;background:linear-gradient(135deg,var(--accent),var(--purple));display:flex;align-items:center;justify-content:center;margin:0 auto 20px;">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </div>
+        <h2 style="font-size:24px;font-weight:700;margin-bottom:8px;">Off Market Radar Scraper</h2>
+        <p style="color:var(--text-muted);font-size:14px;line-height:1.6;">Chrome extension that captures off-market deal posts from Facebook groups as you browse.</p>
+      </div>
+
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:24px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+          <div>
+            <div style="font-size:18px;font-weight:700;">Latest Version</div>
+            <div style="color:var(--green);font-weight:600;font-size:14px;margin-top:4px;">v${LATEST_SCRAPER_VERSION}</div>
+          </div>
+          <a href="fb-deal-scraper-latest.zip" download="fb-deal-scraper-v${LATEST_SCRAPER_VERSION}.zip" style="display:inline-flex;align-items:center;gap:8px;padding:12px 28px;border-radius:8px;background:var(--accent);color:#fff;text-decoration:none;font-size:14px;font-weight:600;transition:opacity 0.15s;" onmouseover="this.style.opacity=0.85" onmouseout="this.style.opacity=1">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Download ZIP
+          </a>
+        </div>
+        <div style="font-size:13px;color:var(--text-light);line-height:1.8;">
+          <strong>What's new in v${LATEST_SCRAPER_VERSION}:</strong>
+          <ul style="margin:8px 0 0 20px;padding:0;">
+            <li>Collector name required before scraping can start</li>
+            <li>Version tracking — see who's up to date on the Sources page</li>
+            <li>Broader Facebook post URL capture (fewer missing post links)</li>
+            <li>Fixed timestamp extraction bug ("May be an image..." no longer matched as a date)</li>
+          </ul>
+        </div>
+      </div>
+
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;">
+        <div style="font-size:16px;font-weight:700;margin-bottom:16px;">Installation Guide</div>
+        <ol style="font-size:13px;color:var(--text-light);line-height:2.2;margin:0 0 0 20px;padding:0;">
+          <li>Download the ZIP file above</li>
+          <li>Unzip the file to a folder on your computer</li>
+          <li>Open Chrome and go to <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-size:12px;">chrome://extensions</code></li>
+          <li>Enable <strong>Developer mode</strong> (toggle in the top-right corner)</li>
+          <li>Click <strong>"Load unpacked"</strong> and select the unzipped folder</li>
+          <li>Click the extension icon and enter your <strong>Collector Name</strong></li>
+          <li>Navigate to any Facebook group — scraping starts automatically!</li>
+        </ol>
+      </div>
+
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;margin-top:24px;">
+        <div style="font-size:16px;font-weight:700;margin-bottom:16px;">Updating an Existing Installation</div>
+        <ol style="font-size:13px;color:var(--text-light);line-height:2.2;margin:0 0 0 20px;padding:0;">
+          <li>Download the latest ZIP and unzip to a <strong>new folder</strong></li>
+          <li>Go to <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-size:12px;">chrome://extensions</code></li>
+          <li>Find "Off Market Radar" and click <strong>Remove</strong></li>
+          <li>Click <strong>"Load unpacked"</strong> and select the new folder</li>
+          <li>Your Collector Name and settings will be preserved</li>
+        </ol>
+      </div>
+    </div>
+  `;
 }
 
 // ===== OUTREACH =====

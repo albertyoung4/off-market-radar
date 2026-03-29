@@ -579,6 +579,34 @@ async function loadWholesalers() {
     // Deduplicate deals across all wholesalers
     const dedupedPosts = deduplicateDeals(allPosts);
 
+    // Fetch poster contact info (phones/emails) from posters table
+    const posterContacts = {};
+    try {
+      let pOffset = 0;
+      let pKeepGoing = true;
+      while (pKeepGoing) {
+        const { data: pData } = await supabaseGet('posters', {
+          select: 'fb_name,phones,emails',
+          limit: 1000,
+          offset: pOffset,
+        });
+        for (const p of pData) {
+          const cName = cleanPosterName(p.fb_name || '');
+          if (!cName) continue;
+          if (!posterContacts[cName]) posterContacts[cName] = { phones: [], emails: [] };
+          if (p.phones) posterContacts[cName].phones.push(...p.phones);
+          if (p.emails) posterContacts[cName].emails.push(...p.emails);
+        }
+        pOffset += 1000;
+        if (pData.length < 1000) pKeepGoing = false;
+      }
+      // Deduplicate
+      for (const k of Object.keys(posterContacts)) {
+        posterContacts[k].phones = [...new Set(posterContacts[k].phones)];
+        posterContacts[k].emails = [...new Set(posterContacts[k].emails)];
+      }
+    } catch (e) { console.warn('Could not load poster contacts:', e); }
+
     // Aggregate by poster_name (clean up scraper artifacts like "· Follow")
     const map = {};
     for (const post of dedupedPosts) {
@@ -600,13 +628,18 @@ async function loadWholesalers() {
       if (!w.lastActive || d > w.lastActive) w.lastActive = d;
     }
 
-    wholesalersData = Object.values(map).map(w => ({
-      ...w,
-      rawNames: Array.from(w.rawNames),
-      groups: Array.from(w.groups),
-      matchRate: w.total > 0 ? Math.round(((w.matched + w.multi + w.confirmed) / w.total) * 100) : 0,
-      avgPrice: w.prices.length > 0 ? Math.round(w.prices.reduce((a, b) => a + b, 0) / w.prices.length) : 0,
-    }));
+    wholesalersData = Object.values(map).map(w => {
+      const contact = posterContacts[w.name] || { phones: [], emails: [] };
+      return {
+        ...w,
+        rawNames: Array.from(w.rawNames),
+        groups: Array.from(w.groups),
+        phones: contact.phones,
+        emails: contact.emails,
+        matchRate: w.total > 0 ? Math.round(((w.matched + w.multi + w.confirmed) / w.total) * 100) : 0,
+        avgPrice: w.prices.length > 0 ? Math.round(w.prices.reduce((a, b) => a + b, 0) / w.prices.length) : 0,
+      };
+    });
 
     renderWholesalers();
   } catch (err) {
@@ -674,7 +707,7 @@ function renderWholesalers() {
         <span class="deal-count-label">${sorted.length} wholesalers</span>
       </div>
     </div>
-    <table class="deals-table" id="wholesalerTable">
+    <table class="deals-table" id="wholesalerTable" style="max-width:1200px;">
       <thead>
         <tr>
           <th style="cursor:pointer" onclick="sortWholesalers('name')">Wholesaler${sortIcon('name')}</th>
@@ -695,16 +728,20 @@ function renderWholesalers() {
           return `
           <tr class="wholesaler-row" data-wholesaler="${encodeURIComponent(w.name)}" onclick="openWholesalerDetail(decodeURIComponent(this.dataset.wholesaler))" style="cursor:pointer">
             <td style="font-weight:600;color:var(--accent-hover)">
-              ${escapeHtml(w.name)}
-              ${(() => {
-                const ck = `omr_contact_${safeBtoa(w.name)}`;
-                const sv = JSON.parse(localStorage.getItem(ck) || '{}');
-                const fbHref = sv.facebook || `https://www.facebook.com/search/people/?q=${encodeURIComponent(w.name)}`;
-                const hasFb = !!sv.facebook;
-                return `<a href="${fbHref}" target="_blank" onclick="event.stopPropagation();" style="margin-left:6px;color:${hasFb ? 'var(--accent)' : 'var(--text-light)'};opacity:${hasFb ? '1' : '0.5'};transition:opacity 0.15s;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=${hasFb ? '1' : '0.5'}" title="${hasFb ? 'View Facebook Profile' : 'Search on Facebook'}">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>
-                </a>`;
-              })()}
+              <div style="display:flex;align-items:center;gap:5px;">
+                ${escapeHtml(w.name)}
+                ${w.phones.length > 0 ? '<span title="' + escapeHtml(w.phones.join(', ')) + '" style="color:var(--green);cursor:help;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg></span>' : ''}
+                ${w.emails.length > 0 ? '<span title="' + escapeHtml(w.emails.join(', ')) + '" style="color:var(--accent);cursor:help;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></span>' : ''}
+                ${(() => {
+                  const ck = 'omr_contact_' + safeBtoa(w.name);
+                  const sv = JSON.parse(localStorage.getItem(ck) || '{}');
+                  const fbHref = sv.facebook || 'https://www.facebook.com/search/people/?q=' + encodeURIComponent(w.name);
+                  const hasFb = !!sv.facebook;
+                  return '<a href="' + fbHref + '" target="_blank" onclick="event.stopPropagation();" style="color:' + (hasFb ? 'var(--accent)' : 'var(--text-light)') + ';opacity:' + (hasFb ? '1' : '0.5') + ';transition:opacity 0.15s;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=' + (hasFb ? '1' : '0.5') + '" title="' + (hasFb ? 'View Facebook Profile' : 'Search on Facebook') + '">' +
+                    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>' +
+                  '</a>';
+                })()}
+              </div>
             </td>
             <td style="font-weight:700">${w.total}</td>
             <td style="color:var(--green)">${w.matched}</td>

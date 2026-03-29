@@ -23,12 +23,34 @@ function deduplicateDeals(deals) {
   });
 }
 
-// Backfill beds/baths/sqft from match_candidates when parsed fields are empty
+// Build a normalized full address from property registry data
+function normalizeAddress(deal) {
+  const c = deal.match_candidates?.[0];
+  if (!c) return deal.matched_address || '';
+  // Use registry street address, falling back to matched_address or parsed
+  const street = c.property_address_full || deal.matched_address || deal.parsed_full_address || '';
+  const city = c.property_address_city || deal.parsed_city || '';
+  const state = c.property_address_state || deal.parsed_state || '';
+  const zip = c.property_address_zip || deal.parsed_zip || '';
+  // Build normalized: "123 Main St, Nashville, TN 37201"
+  const parts = [street.trim()];
+  if (city) parts.push(city.trim());
+  const stateZip = [state.trim(), zip.trim()].filter(Boolean).join(' ');
+  if (stateZip) parts.push(stateZip);
+  return parts.filter(Boolean).join(', ');
+}
+
+// Backfill beds/baths/sqft and normalize address from match_candidates
 function backfillPropertyData(deal) {
   const c = deal.match_candidates?.[0];
   if (!c) return deal;
+  const normalized = normalizeAddress(deal);
   return {
     ...deal,
+    matched_address: normalized || deal.matched_address,
+    parsed_city: c.property_address_city || deal.parsed_city || null,
+    parsed_state: c.property_address_state || deal.parsed_state || null,
+    parsed_zip: c.property_address_zip || deal.parsed_zip || null,
     parsed_beds: deal.parsed_beds || c.bedrooms_count || null,
     parsed_baths: deal.parsed_baths || c.bath_count || null,
     parsed_sqft: deal.parsed_sqft || c.area_building || c.living_area_size || null,
@@ -307,9 +329,7 @@ function renderMapMarkers(geocoded, cityDeals) {
 
       const isMulti = deal.match_status === 'multi_match';
       const color = isMulti ? '#eab308' : '#22c55e';
-      const candidate = deal.match_candidates?.[0];
-      const addr = deal.matched_address || candidate?.property_address_full || 'Unknown';
-      const fullAddr = [addr, candidate?.property_address_city || deal.parsed_city || '', (candidate?.property_address_state || deal.parsed_state || '') + ' ' + (candidate?.property_address_zip || deal.parsed_zip || '')].filter(Boolean).join(', ');
+      const fullAddr = deal.matched_address || 'Unknown';
       const askPrice = deal.parsed_asking_price ? '$' + Number(deal.parsed_asking_price).toLocaleString() : '';
       const arv = deal.parsed_arv ? '$' + Number(deal.parsed_arv).toLocaleString() : '';
       const beds = deal.parsed_beds || '?';
@@ -329,7 +349,7 @@ function renderMapMarkers(geocoded, cityDeals) {
 
       marker.bindPopup(`
         <div style="min-width:220px">
-          <div style="font-weight:700;color:${color};margin-bottom:6px;font-size:13px;">${escapeHtml(addr)}</div>
+          <div style="font-weight:700;color:${color};margin-bottom:6px;font-size:13px;">${escapeHtml(fullAddr)}</div>
           <div style="font-size:12px;color:#8b8fa3;line-height:1.7;">
             ${beds}bd / ${baths}ba ${sqft ? '· ' + sqft : ''}<br>
             ${askPrice ? '<span style="color:#e8eaf0;">Ask: </span><span style="font-weight:700;color:#e8eaf0;">' + askPrice + '</span><br>' : ''}
@@ -980,7 +1000,7 @@ async function openWholesalerDetail(name) {
 
     // Render all deals table
     const tbody = document.getElementById('wholesalerDealsBody');
-    for (const deal of allPosts) {
+    for (const deal of cleanedPosts) {
       const tr = document.createElement('tr');
       if (deal.match_status === 'no_match') tr.classList.add('row-no-match');
       const addrColor = addressColor(deal);
@@ -1599,13 +1619,14 @@ function getBestAddress(deal) {
 }
 
 function buildFullAddress(deal) {
+  // matched_address is already normalized by backfillPropertyData (street, city, state zip)
+  if (deal.matched_address) return deal.matched_address.toUpperCase();
+  // Fallback: construct from parsed fields
   const street = getBestAddress(deal);
   if (!street) return '-';
-  const candidates = deal.match_candidates || [];
-  const top = candidates[0];
-  const city = top?.property_address_city || deal.parsed_city || '';
-  const state = top?.property_address_state || deal.parsed_state || '';
-  const zip = top?.property_address_zip || deal.parsed_zip || '';
+  const city = deal.parsed_city || '';
+  const state = deal.parsed_state || '';
+  const zip = deal.parsed_zip || '';
   const parts = [street.toUpperCase()];
   if (city) parts.push(city);
   const stateZip = [state, zip].filter(Boolean).join(' ');

@@ -99,7 +99,7 @@ function switchView(view) {
     wholesalers: 'Wholesaler Directory',
     sources: 'Deal Source Catalog',
     outreach: 'Outreach',
-    scraper: 'Get Scraper',
+    scraper: 'Download Plugin',
     team: 'Team Activity',
   };
   const headerEl = document.getElementById('headerTitle');

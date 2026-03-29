@@ -139,6 +139,9 @@ function switchView(view) {
   if (view === 'scraper') {
     renderScraperPage();
   }
+  if (view === 'team') {
+    loadTeamActivity();
+  }
 }
 
 function refreshData() {
@@ -1816,6 +1819,190 @@ function renderScraperPage() {
       const el = document.getElementById('zipTimestamp');
       if (el) el.textContent = '';
     });
+}
+
+// ===== TEAM ACTIVITY =====
+
+async function loadTeamActivity() {
+  const container = document.getElementById('teamContent');
+  if (!container) return;
+  container.innerHTML = '<div class="loading"><div class="spinner"></div><div>Analyzing team activity...</div></div>';
+
+  try {
+    // Fetch all posts with collector_name, captured_at, match_status
+    const allPosts = [];
+    var tOffset = 0;
+    var tBatchSize = 1000;
+    var tKeepGoing = true;
+
+    while (tKeepGoing) {
+      var result = await supabaseGet('fb_deal_posts', {
+        select: 'collector_name,captured_at,match_status,matched_address',
+        order: 'captured_at.desc',
+        limit: tBatchSize,
+        offset: tOffset,
+      });
+      allPosts.push(...result.data);
+      tOffset += tBatchSize;
+      if (result.data.length < tBatchSize || allPosts.length >= result.count) tKeepGoing = false;
+    }
+
+    // Group posts by collector
+    var byCollector = {};
+    for (var p of allPosts) {
+      var cn = p.collector_name || 'Unknown';
+      if (!byCollector[cn]) byCollector[cn] = [];
+      byCollector[cn].push(p);
+    }
+
+    // Build sessions per collector: a session = consecutive posts with <= 5 min gap
+    var SESSION_GAP_MS = 5 * 60 * 1000; // 5 minutes
+    var allSessions = [];
+
+    for (var collector of Object.keys(byCollector)) {
+      var posts = byCollector[collector]
+        .map(function(p) { return { ts: new Date(p.captured_at), status: p.match_status, addr: p.matched_address }; })
+        .sort(function(a, b) { return a.ts - b.ts; });
+
+      var session = null;
+      for (var i = 0; i < posts.length; i++) {
+        if (!session) {
+          session = { collector: collector, start: posts[i].ts, end: posts[i].ts, posts: [posts[i]] };
+        } else {
+          var gap = posts[i].ts - session.end;
+          if (gap <= SESSION_GAP_MS) {
+            session.end = posts[i].ts;
+            session.posts.push(posts[i]);
+          } else {
+            allSessions.push(session);
+            session = { collector: collector, start: posts[i].ts, end: posts[i].ts, posts: [posts[i]] };
+          }
+        }
+      }
+      if (session) allSessions.push(session);
+    }
+
+    // Calculate session stats
+    var sessionRows = allSessions.map(function(s) {
+      var durationMs = s.end - s.start;
+      var durationMin = Math.round(durationMs / 60000);
+      var matchedAddrs = new Set();
+      for (var p of s.posts) {
+        if ((p.status === 'matched' || p.status === 'multi_match' || p.status === 'confirmed') && p.addr) {
+          matchedAddrs.add(p.addr);
+        }
+      }
+      return {
+        collector: s.collector,
+        start: s.start,
+        end: s.end,
+        durationMin: durationMin,
+        totalPosts: s.posts.length,
+        uniqueMatches: matchedAddrs.size,
+      };
+    }).sort(function(a, b) { return b.start - a.start; });
+
+    // Build daily summary per collector
+    var dailyMap = {};
+    for (var sess of sessionRows) {
+      var dateKey = sess.start.toLocaleDateString('en-US', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit' });
+      var dk = sess.collector + '|' + dateKey;
+      if (!dailyMap[dk]) {
+        dailyMap[dk] = { collector: sess.collector, date: dateKey, totalMinutes: 0, uniqueMatches: 0, totalPosts: 0, sessions: 0 };
+      }
+      dailyMap[dk].totalMinutes += sess.durationMin;
+      dailyMap[dk].uniqueMatches += sess.uniqueMatches;
+      dailyMap[dk].totalPosts += sess.totalPosts;
+      dailyMap[dk].sessions++;
+    }
+    var dailyRows = Object.values(dailyMap).sort(function(a, b) {
+      if (a.date !== b.date) return b.date.localeCompare(a.date);
+      return a.collector.localeCompare(b.collector);
+    });
+
+    // Format duration
+    function fmtDuration(mins) {
+      if (mins < 1) return '<1m';
+      var h = Math.floor(mins / 60);
+      var m = mins % 60;
+      if (h > 0) return h + 'h ' + m + 'm';
+      return m + 'm';
+    }
+
+    function fmtHours(mins) {
+      return (mins / 60).toFixed(1);
+    }
+
+    // KPIs
+    var totalSessions = sessionRows.length;
+    var totalHours = sessionRows.reduce(function(s, r) { return s + r.durationMin; }, 0) / 60;
+    var totalUniqueMatches = sessionRows.reduce(function(s, r) { return s + r.uniqueMatches; }, 0);
+    var activeCollectors = new Set(sessionRows.map(function(r) { return r.collector; })).size;
+
+    // Render
+    var sessionTableRows = sessionRows.slice(0, 100).map(function(r) {
+      return '<tr>' +
+        '<td style="font-weight:600;">' + escapeHtml(r.collector) + '</td>' +
+        '<td>' + formatDate(r.start.toISOString()) + '</td>' +
+        '<td>' + formatDate(r.end.toISOString()) + '</td>' +
+        '<td style="font-weight:600;">' + fmtDuration(r.durationMin) + '</td>' +
+        '<td>' + r.totalPosts + '</td>' +
+        '<td style="color:var(--green);font-weight:600;">' + r.uniqueMatches + '</td>' +
+      '</tr>';
+    }).join('');
+
+    var dailyTableRows = dailyRows.map(function(r) {
+      var matchesPerHr = r.totalMinutes > 0 ? (r.uniqueMatches / (r.totalMinutes / 60)).toFixed(1) : '0';
+      return '<tr>' +
+        '<td>' + r.date + '</td>' +
+        '<td style="font-weight:600;">' + escapeHtml(r.collector) + '</td>' +
+        '<td>' + r.sessions + '</td>' +
+        '<td style="font-weight:600;">' + fmtHours(r.totalMinutes) + 'h</td>' +
+        '<td>' + r.totalPosts + '</td>' +
+        '<td style="color:var(--green);font-weight:600;">' + r.uniqueMatches + '</td>' +
+        '<td style="color:var(--accent);font-weight:600;">' + matchesPerHr + '</td>' +
+      '</tr>';
+    }).join('');
+
+    container.innerHTML = '<div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px;">' +
+      '<div class="kpi-card blue"><div class="kpi-glow"></div><div class="kpi-value">' + activeCollectors + '</div><div class="kpi-label">Active Collectors</div></div>' +
+      '<div class="kpi-card purple"><div class="kpi-glow"></div><div class="kpi-value">' + totalSessions + '</div><div class="kpi-label">Total Sessions</div></div>' +
+      '<div class="kpi-card cyan"><div class="kpi-glow"></div><div class="kpi-value">' + totalHours.toFixed(1) + 'h</div><div class="kpi-label">Total Hours</div></div>' +
+      '<div class="kpi-card green"><div class="kpi-glow"></div><div class="kpi-value">' + totalUniqueMatches.toLocaleString() + '</div><div class="kpi-label">Unique Matches</div></div>' +
+    '</div>' +
+
+    '<div style="font-size:16px;font-weight:700;margin-bottom:12px;">Session History</div>' +
+    '<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">A session is a block of scanning where no more than 5 minutes elapses between posts.</div>' +
+    '<table class="deals-table" style="margin-bottom:40px;">' +
+      '<thead><tr>' +
+        '<th>Collector</th>' +
+        '<th>Start Time</th>' +
+        '<th>End Time</th>' +
+        '<th>Duration</th>' +
+        '<th>Posts Scanned</th>' +
+        '<th>Unique Matches</th>' +
+      '</tr></thead>' +
+      '<tbody>' + (sessionTableRows || '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:40px;">No sessions found</td></tr>') + '</tbody>' +
+    '</table>' +
+
+    '<div style="font-size:16px;font-weight:700;margin-bottom:12px;">Daily Summary</div>' +
+    '<table class="deals-table">' +
+      '<thead><tr>' +
+        '<th>Date</th>' +
+        '<th>Collector</th>' +
+        '<th>Sessions</th>' +
+        '<th>Total Hours</th>' +
+        '<th>Posts Scanned</th>' +
+        '<th>Unique Matches</th>' +
+        '<th>Matches/Hour</th>' +
+      '</tr></thead>' +
+      '<tbody>' + (dailyTableRows || '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:40px;">No data</td></tr>') + '</tbody>' +
+    '</table>';
+
+  } catch (err) {
+    console.error('Failed to load team activity:', err);
+    container.innerHTML = '<div style="color:var(--red);text-align:center;padding:40px;">Failed to load team activity: ' + escapeHtml(err.message) + '</div>';
+  }
 }
 
 // ===== OUTREACH =====

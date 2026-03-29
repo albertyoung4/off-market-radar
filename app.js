@@ -1406,7 +1406,7 @@ async function loadDealFlow() {
       const { data, count } = await supabaseGet('fb_deal_posts', {
         select: 'match_status,captured_at,matched_address',
         filters: [{ col: 'match_status', val: 'neq.pending' }],
-        order: 'captured_at.asc',
+        order: 'captured_at.desc',
         limit: batchSize,
         offset,
       });
@@ -2140,14 +2140,15 @@ function switchOutreachTab(tab) {
 function formatDate(dateStr) {
   if (!dateStr) return '-';
   const d = new Date(dateStr);
-  const mo = d.getMonth() + 1;
-  const dy = d.getDate();
-  const yr = String(d.getFullYear()).slice(2);
-  let hr = d.getHours();
-  const mn = String(d.getMinutes()).padStart(2, '0');
-  const ampm = hr >= 12 ? 'PM' : 'AM';
-  hr = hr % 12 || 12;
-  return `${mo}/${dy}/${yr} ${hr}:${mn}${ampm}`;
+  return d.toLocaleString('en-US', {
+    timeZone: 'America/Chicago',
+    month: 'numeric',
+    day: 'numeric',
+    year: '2-digit',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).replace(',', '');
 }
 
 function formatPrice(val) {

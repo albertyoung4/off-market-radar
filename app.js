@@ -98,6 +98,7 @@ function switchView(view) {
     markets: 'Market Analytics',
     wholesalers: 'Wholesaler Directory',
     sources: 'Deal Source Catalog',
+    outreach: 'Outreach',
     team: 'Team Activity',
   };
   const headerEl = document.getElementById('headerTitle');
@@ -124,6 +125,9 @@ function switchView(view) {
   }
   if (view === 'markets') {
     loadMarkets();
+  }
+  if (view === 'outreach') {
+    loadOutreach();
   }
 }
 
@@ -1653,6 +1657,204 @@ async function loadMarkets() {
   } catch (err) {
     console.error('Failed to load markets:', err);
     container.innerHTML = `<div style="color:var(--red);text-align:center;padding:40px;">Failed to load markets: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+// ===== OUTREACH =====
+let outreachTab = 'comments'; // 'comments' or 'dms'
+
+// Patterns to classify outreach type
+const COMMENT_PATTERN = /\bcomment\b|\bleave.*(email|info|number|details)\b|\bdrop.*(email|info|number|details)\b|\bsend.*(email|info|number)\b|\bput.*(email|info)\b|\bemail\s*(below|me|in)\b|\bcomment\s*(below|your|with)\b/i;
+const DM_PATTERN = /\bDM\b|\bdirect\s*message\b|\binbox\s*me\b|\bPM\b|\bprivate\s*message\b|\bmessage\s*me\b|\bsend\s*me\s*a\s*message\b|\bshoot\s*me\s*a\s*(dm|message|pm)\b|\bhit\s*me\s*up\b/i;
+
+async function loadOutreach() {
+  const container = document.getElementById('outreachContent');
+  if (!container) return;
+  container.innerHTML = `<div class="loading"><div class="spinner"></div><div>Loading outreach opportunities...</div></div>`;
+
+  try {
+    // Fetch no_match posts with post_text for classification
+    const allPosts = [];
+    let offset = 0;
+    const batchSize = 1000;
+    let keepGoing = true;
+
+    while (keepGoing) {
+      const { data, count } = await supabaseGet('fb_deal_posts', {
+        select: 'id,post_text,post_url,poster_name,group_name,captured_at,parsed_asking_price,parsed_arv,parsed_full_address,parsed_city,parsed_state,post_images',
+        filters: [{ col: 'match_status', val: 'eq.no_match' }],
+        order: 'captured_at.desc',
+        limit: batchSize,
+        offset,
+      });
+      allPosts.push(...data);
+      offset += batchSize;
+      if (data.length < batchSize || allPosts.length >= count) keepGoing = false;
+    }
+
+    // Classify posts
+    const commentPosts = [];
+    const dmPosts = [];
+
+    for (const post of allPosts) {
+      const text = Array.isArray(post.post_text) ? post.post_text.join(' ') : (post.post_text || '');
+      const isComment = COMMENT_PATTERN.test(text);
+      const isDM = DM_PATTERN.test(text);
+      // A post can match both — put in both lists
+      if (isComment) commentPosts.push(post);
+      if (isDM) dmPosts.push(post);
+    }
+
+    renderOutreach(container, commentPosts, dmPosts, allPosts.length);
+  } catch (err) {
+    console.error('Failed to load outreach:', err);
+    container.innerHTML = `<div style="color:var(--red);text-align:center;padding:40px;">Failed to load outreach: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderOutreach(container, commentPosts, dmPosts, totalNoMatch) {
+  const activeComments = outreachTab === 'comments';
+  const posts = activeComments ? commentPosts : dmPosts;
+  const actionLabel = activeComments ? 'Comment' : 'DM';
+
+  container.innerHTML = `
+    <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px;">
+      <div class="kpi-card red">
+        <div class="kpi-glow"></div>
+        <div class="kpi-value">${totalNoMatch.toLocaleString()}</div>
+        <div class="kpi-label">Total No Match</div>
+      </div>
+      <div class="kpi-card blue">
+        <div class="kpi-glow"></div>
+        <div class="kpi-value">${commentPosts.length.toLocaleString()}</div>
+        <div class="kpi-label">Comment Opportunities</div>
+      </div>
+      <div class="kpi-card purple">
+        <div class="kpi-glow"></div>
+        <div class="kpi-value">${dmPosts.length.toLocaleString()}</div>
+        <div class="kpi-label">DM Opportunities</div>
+      </div>
+      <div class="kpi-card green">
+        <div class="kpi-glow"></div>
+        <div class="kpi-value">${(commentPosts.length + dmPosts.length).toLocaleString()}</div>
+        <div class="kpi-label">Total Actionable</div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--border);">
+      <button id="outreachTabComments" onclick="switchOutreachTab('comments')" style="
+        padding:10px 24px;font-size:14px;font-weight:600;cursor:pointer;border:none;background:none;
+        color:${activeComments ? 'var(--accent)' : 'var(--text-muted)'};
+        border-bottom:2px solid ${activeComments ? 'var(--accent)' : 'transparent'};
+        margin-bottom:-2px;transition:all 0.15s;
+      ">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px;"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        Comments (${commentPosts.length})
+      </button>
+      <button id="outreachTabDMs" onclick="switchOutreachTab('dms')" style="
+        padding:10px 24px;font-size:14px;font-weight:600;cursor:pointer;border:none;background:none;
+        color:${!activeComments ? 'var(--purple)' : 'var(--text-muted)'};
+        border-bottom:2px solid ${!activeComments ? 'var(--purple)' : 'transparent'};
+        margin-bottom:-2px;transition:all 0.15s;
+      ">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px;"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+        Direct Messages (${dmPosts.length})
+      </button>
+    </div>
+
+    ${posts.length === 0 ? `
+      <div style="text-align:center;padding:60px 20px;color:var(--text-muted);">
+        <div style="font-size:36px;margin-bottom:12px;">📭</div>
+        <div style="font-size:16px;font-weight:600;">No ${actionLabel.toLowerCase()} opportunities found</div>
+        <div style="font-size:13px;margin-top:6px;">Posts that ask for ${activeComments ? 'comments or emails' : 'DMs or private messages'} will appear here.</div>
+      </div>
+    ` : `
+      <div id="outreachList" style="display:flex;flex-direction:column;gap:12px;">
+        ${posts.map(post => {
+          const text = Array.isArray(post.post_text) ? post.post_text.join('\n') : (post.post_text || '');
+          const posterName = cleanPosterName(post.poster_name || 'Unknown');
+          const truncated = text.length > 400 ? text.substring(0, 400) + '...' : text;
+          const date = formatDate(post.captured_at);
+          const city = post.parsed_city || '';
+          const state = post.parsed_state || '';
+          const location = [city, state].filter(Boolean).join(', ');
+          const ask = post.parsed_asking_price ? '$' + Number(post.parsed_asking_price).toLocaleString() : '';
+
+          // Look up wholesaler contact info from localStorage
+          const contactKey = 'omr_contact_' + safeBtoa(posterName);
+          let saved = {};
+          try { saved = JSON.parse(localStorage.getItem(contactKey) || '{}'); } catch(e) {}
+          const fbUrl = saved.facebook || '';
+          const dmUrl = fbUrl ? fbUrl.replace(/\\/$/, '') + '/messages' : '';
+
+          // Build intro message for clipboard
+          const addrSnippet = post.parsed_full_address || location || 'this property';
+          const introText = activeComments
+            ? \`Hi \${posterName}, I'm interested in \${addrSnippet}\${ask ? ' (' + ask + ')' : ''}. Could you send me the details? You can reach me at offmarket@rebuilt.com. Thanks!\`
+            : \`Hey \${posterName}, I saw your post about \${addrSnippet}\${ask ? ' at ' + ask : ''}. I'd love to get more details. Feel free to reach me here or at offmarket@rebuilt.com. Thanks!\`;
+          const introEncoded = introText.replace(/'/g, "\\\\'").replace(/"/g, '&quot;');
+
+          return \`
+          <div class="outreach-card" onclick="copyOutreachIntro(this, '\${introEncoded}')" title="Click to copy intro to clipboard" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;transition:border-color 0.15s;cursor:pointer;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
+              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                <div style="width:36px;height:36px;border-radius:8px;background:linear-gradient(135deg,var(--accent),var(--purple));display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:#fff;flex-shrink:0;">\${(posterName[0] || '?').toUpperCase()}</div>
+                <div>
+                  <div style="font-weight:600;font-size:14px;">\${escapeHtml(posterName)}</div>
+                  <div style="font-size:11px;color:var(--text-muted);">\${escapeHtml(post.group_name || '')} \${location ? '· ' + location : ''} · \${date}</div>
+                </div>
+              </div>
+              <div style="display:flex;gap:6px;flex-shrink:0;">
+                \${post.post_url ? \`<a href="\${post.post_url}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border-radius:6px;background:var(--accent);color:#fff;text-decoration:none;font-size:12px;font-weight:600;transition:opacity 0.15s;" onmouseover="this.style.opacity=0.8" onmouseout="this.style.opacity=1">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                  View Post
+                </a>\` : ''}
+                \${dmUrl ? \`<a href="\${dmUrl}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border-radius:6px;background:var(--purple);color:#fff;text-decoration:none;font-size:12px;font-weight:600;transition:opacity 0.15s;" onmouseover="this.style.opacity=0.8" onmouseout="this.style.opacity=1">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                  Send DM
+                </a>\` : ''}
+                \${ask ? \`<span style="padding:6px 12px;border-radius:6px;background:rgba(34,197,94,0.1);color:var(--green);font-size:12px;font-weight:600;">\${ask}</span>\` : ''}
+              </div>
+            </div>
+            <pre style="white-space:pre-wrap;word-break:break-word;font-size:13px;line-height:1.6;color:var(--text-light);margin:0;font-family:inherit;background:var(--bg);border-radius:8px;padding:12px;">\${escapeHtml(truncated)}</pre>
+          </div>\`;
+        }).join('')}
+      </div>
+    `}
+  `;
+
+  // Store references for tab switching
+  container._commentPosts = commentPosts;
+  container._dmPosts = dmPosts;
+  container._totalNoMatch = totalNoMatch;
+}
+
+function copyOutreachIntro(cardEl, text) {
+  // Don't copy if they clicked a link/button
+  if (event && (event.target.closest('a') || event.target.closest('button'))) return;
+  const decoded = text.replace(/&quot;/g, '"').replace(/\\'/g, "'");
+  navigator.clipboard.writeText(decoded).then(() => {
+    // Flash green border to confirm
+    cardEl.style.borderColor = 'var(--green)';
+    const badge = document.createElement('div');
+    badge.textContent = '✓ Intro copied to clipboard';
+    badge.style.cssText = 'position:absolute;top:12px;right:16px;background:var(--green);color:#000;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:600;z-index:5;animation:fadeIn 0.2s;';
+    cardEl.style.position = 'relative';
+    cardEl.appendChild(badge);
+    setTimeout(() => {
+      cardEl.style.borderColor = '';
+      badge.remove();
+    }, 2000);
+  }).catch(err => {
+    console.error('Clipboard write failed:', err);
+  });
+}
+
+function switchOutreachTab(tab) {
+  outreachTab = tab;
+  const container = document.getElementById('outreachContent');
+  if (container._commentPosts) {
+    renderOutreach(container, container._commentPosts, container._dmPosts, container._totalNoMatch);
   }
 }
 

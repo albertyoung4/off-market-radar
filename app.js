@@ -1819,7 +1819,8 @@ function renderOutreach(container, commentPosts, dmPosts, otherPosts, totalNoMat
 
       var viewPostBtn = '';
       if (post.post_url) {
-        viewPostBtn = '<a href="' + post.post_url + '" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border-radius:6px;background:var(--accent);color:#fff;text-decoration:none;font-size:12px;font-weight:600;transition:opacity 0.15s;" onmouseover="this.style.opacity=0.8" onmouseout="this.style.opacity=1">' +
+        var safeUrl = post.post_url.replace(/'/g, "\\'");
+        viewPostBtn = '<a href="' + post.post_url + '" onclick="event.preventDefault(); openPostPopup(\'' + safeUrl + '\')" style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border-radius:6px;background:var(--accent);color:#fff;text-decoration:none;font-size:12px;font-weight:600;cursor:pointer;transition:opacity 0.15s;" onmouseover="this.style.opacity=0.8" onmouseout="this.style.opacity=1">' +
           '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>' +
           'View Post</a>';
       }
@@ -1921,25 +1922,55 @@ function renderOutreach(container, commentPosts, dmPosts, otherPosts, totalNoMat
 }
 
 function copyOutreachIntro(cardEl) {
-  // Don't copy if they clicked a link/button
-  if (event && (event.target.closest('a') || event.target.closest('button'))) return;
   const raw = cardEl.dataset.intro || '';
   const decoded = raw.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
-  navigator.clipboard.writeText(decoded).then(() => {
-    // Flash green border to confirm
+
+  function showCopied() {
     cardEl.style.borderColor = 'var(--green)';
-    const badge = document.createElement('div');
-    badge.textContent = '✓ Intro copied to clipboard';
-    badge.style.cssText = 'position:absolute;top:12px;right:16px;background:var(--green);color:#000;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:600;z-index:5;animation:fadeIn 0.2s;';
     cardEl.style.position = 'relative';
+    // Remove any existing badge
+    var old = cardEl.querySelector('.copy-badge');
+    if (old) old.remove();
+    var badge = document.createElement('div');
+    badge.className = 'copy-badge';
+    badge.textContent = '✓ Intro copied to clipboard';
+    badge.style.cssText = 'position:absolute;top:12px;right:16px;background:var(--green);color:#000;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:600;z-index:5;';
     cardEl.appendChild(badge);
-    setTimeout(() => {
+    setTimeout(function() {
       cardEl.style.borderColor = '';
       badge.remove();
     }, 2000);
-  }).catch(err => {
-    console.error('Clipboard write failed:', err);
-  });
+  }
+
+  // Try modern clipboard API first, fall back to execCommand
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(decoded).then(showCopied).catch(function() {
+      // Fallback for when clipboard API is denied
+      fallbackCopy(decoded);
+      showCopied();
+    });
+  } else {
+    fallbackCopy(decoded);
+    showCopied();
+  }
+}
+
+function openPostPopup(url) {
+  var w = 500;
+  var h = 700;
+  var left = window.screenX + window.outerWidth - w - 40;
+  var top = window.screenY + 80;
+  window.open(url, 'fbpost', 'width=' + w + ',height=' + h + ',left=' + left + ',top=' + top + ',scrollbars=yes,resizable=yes');
+}
+
+function fallbackCopy(text) {
+  var ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0;';
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand('copy'); } catch(e) {}
+  document.body.removeChild(ta);
 }
 
 function switchOutreachTab(tab) {

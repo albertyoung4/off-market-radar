@@ -1741,7 +1741,22 @@ function renderScraperPage() {
 }
 
 // ===== OUTREACH =====
-let outreachTab = 'comments'; // 'comments' or 'dms'
+let outreachTab = 'comments'; // 'comments', 'dms', or 'other'
+let outreachHideDone = false;
+
+// Track outreach status in localStorage
+function getOutreachDone() {
+  try { return JSON.parse(localStorage.getItem('omr_outreach_done') || '{}'); } catch(e) { return {}; }
+}
+function markOutreachDone(postId) {
+  var done = getOutreachDone();
+  done[postId] = new Date().toISOString();
+  localStorage.setItem('omr_outreach_done', JSON.stringify(done));
+  // Also persist to Supabase
+  supabasePatch('fb_deal_posts', postId, { outreach_status: 'contacted' }).catch(function(e) {
+    console.warn('Failed to save outreach status to DB:', e);
+  });
+}
 
 // Patterns to classify outreach type
 const COMMENT_PATTERN = /\bcomment\b|\bleave.*(email|info|number|details)\b|\bdrop.*(email|info|number|details)\b|\bsend.*(email|info|number)\b|\bput.*(email|info)\b|\bemail\s*(below|me|in)\b|\bcomment\s*(below|your|with)\b/i;
@@ -1761,7 +1776,7 @@ async function loadOutreach() {
 
     while (keepGoing) {
       const { data, count } = await supabaseGet('fb_deal_posts', {
-        select: 'id,post_text,post_url,poster_name,group_name,captured_at,parsed_asking_price,parsed_arv,parsed_full_address,parsed_city,parsed_state,parsed_beds,parsed_baths,parsed_sqft,post_images,match_candidates',
+        select: 'id,post_text,post_url,poster_name,group_name,captured_at,parsed_asking_price,parsed_arv,parsed_full_address,parsed_city,parsed_state,parsed_beds,parsed_baths,parsed_sqft,post_images,match_candidates,outreach_status',
         filters: [{ col: 'match_status', val: 'eq.no_match' }],
         order: 'captured_at.desc',
         limit: batchSize,
@@ -1876,7 +1891,15 @@ function renderOutreach(container, commentPosts, dmPosts, otherPosts, totalNoMat
         '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>' +
         'Copy Intro</button>';
 
-      return '<div class="outreach-card" data-intro="' + introData + '" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;transition:border-color 0.15s;">' +
+      // Check if post was already processed
+      var doneMap = getOutreachDone();
+      var isDone = !!(doneMap[post.id] || post.outreach_status === 'contacted');
+      var doneStyle = isDone ? 'opacity:0.5;' : '';
+      var doneBadge = isDone ? '<span style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border-radius:6px;background:rgba(239,68,68,0.15);color:var(--red);font-size:12px;font-weight:600;white-space:nowrap;">' +
+        '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>' +
+        'Already Processed</span>' : '';
+
+      return '<div class="outreach-card" data-postid="' + post.id + '" data-intro="' + introData + '" style="background:var(--surface);border:1px solid ' + (isDone ? 'var(--green)' : 'var(--border)') + ';border-radius:10px;padding:16px;transition:border-color 0.15s;' + doneStyle + '">' +
         '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">' +
           '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
             '<div style="width:36px;height:36px;border-radius:8px;background:linear-gradient(135deg,var(--accent),var(--purple));display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:#fff;flex-shrink:0;">' + (posterName[0] || '?').toUpperCase() + '</div>' +
@@ -1885,7 +1908,7 @@ function renderOutreach(container, commentPosts, dmPosts, otherPosts, totalNoMat
               '<div style="font-size:11px;color:var(--text-muted);">' + escapeHtml(post.group_name || '') + (loc ? ' · ' + loc : '') + ' · ' + date + '</div>' +
             '</div>' +
           '</div>' +
-          '<div style="display:flex;gap:6px;flex-shrink:0;">' + copyBtn + viewPostBtn + dmBtn + askBadge + '</div>' +
+          '<div style="display:flex;gap:6px;flex-shrink:0;align-items:center;">' + doneBadge + copyBtn + viewPostBtn + dmBtn + askBadge + '</div>' +
         '</div>' +
         '<pre style="white-space:pre-wrap;word-break:break-word;font-size:13px;line-height:1.6;color:var(--text-light);margin:0;font-family:inherit;background:var(--bg);border-radius:8px;padding:12px;">' + escapeHtml(truncated) + '</pre>' +
       '</div>';
@@ -1959,6 +1982,7 @@ function renderOutreach(container, commentPosts, dmPosts, otherPosts, totalNoMat
 function copyOutreachIntro(cardEl) {
   const raw = cardEl.dataset.intro || '';
   const decoded = raw.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+  const postId = cardEl.dataset.postid;
 
   function showCopied() {
     cardEl.style.borderColor = 'var(--green)';
@@ -1971,8 +1995,26 @@ function copyOutreachIntro(cardEl) {
     badge.textContent = '✓ Intro copied to clipboard';
     badge.style.cssText = 'position:absolute;top:12px;right:16px;background:var(--green);color:#000;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:600;z-index:5;';
     cardEl.appendChild(badge);
+
+    // Mark post as processed
+    if (postId) {
+      markOutreachDone(postId);
+      // Visually dim the card and add processed indicator
+      cardEl.style.opacity = '0.5';
+      var existingBadge = cardEl.querySelector('.processed-badge');
+      if (!existingBadge) {
+        var actionBar = cardEl.querySelector('div > div:last-child');
+        if (actionBar) {
+          var pb = document.createElement('span');
+          pb.className = 'processed-badge';
+          pb.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Already Processed';
+          pb.style.cssText = 'display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border-radius:6px;background:rgba(239,68,68,0.15);color:var(--red);font-size:12px;font-weight:600;white-space:nowrap;';
+          actionBar.insertBefore(pb, actionBar.firstChild);
+        }
+      }
+    }
+
     setTimeout(function() {
-      cardEl.style.borderColor = '';
       badge.remove();
     }, 2000);
   }

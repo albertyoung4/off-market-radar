@@ -25,15 +25,22 @@ function deduplicateDeals(deals) {
 
 // Build a normalized full address from property registry data
 function normalizeAddress(deal) {
-  const c = deal.match_candidates?.[0];
-  if (!c) return deal.matched_address || '';
+  const c = deal.match_candidates?.[0] || {};
   // Use registry street address, falling back to matched_address or parsed
   const street = c.property_address_full || deal.matched_address || deal.parsed_full_address || '';
   const city = c.property_address_city || deal.parsed_city || '';
   const state = c.property_address_state || deal.parsed_state || '';
   const zip = c.property_address_zip || deal.parsed_zip || '';
-  // Build normalized: "123 Main St, Nashville, TN 37201"
-  const parts = [street.trim()];
+
+  // If matched_address already has city/state/zip (contains a comma), use as-is
+  // Otherwise build complete: "123 Main St, Nashville, TN 37201"
+  const trimmedStreet = street.trim();
+  if (!trimmedStreet) return '';
+
+  // Check if the street part already contains city/state (has commas)
+  if (trimmedStreet.includes(',') && (state || zip)) return trimmedStreet;
+
+  const parts = [trimmedStreet];
   if (city) parts.push(city.trim());
   const stateZip = [state.trim(), zip.trim()].filter(Boolean).join(' ');
   if (stateZip) parts.push(stateZip);
@@ -42,8 +49,7 @@ function normalizeAddress(deal) {
 
 // Backfill beds/baths/sqft and normalize address from match_candidates
 function backfillPropertyData(deal) {
-  const c = deal.match_candidates?.[0];
-  if (!c) return deal;
+  const c = deal.match_candidates?.[0] || {};
   const normalized = normalizeAddress(deal);
   return {
     ...deal,
@@ -495,6 +501,13 @@ async function loadKPIs() {
         <div class="kpi-value">${processed.toLocaleString()}</div>
         <div class="kpi-label">Processed</div>
       </div>
+      ${(counts.pending || 0) > 0 ? `
+      <div class="kpi-card" style="border-color:var(--yellow);background:rgba(245,158,11,0.08);">
+        <div class="kpi-glow"></div>
+        <div class="kpi-value" style="color:var(--yellow);">${(counts.pending || 0).toLocaleString()}</div>
+        <div class="kpi-label" style="color:var(--yellow);">⚠ Pending Processing</div>
+      </div>
+      ` : ''}
       <div class="kpi-card green">
         <div class="kpi-glow"></div>
         <div class="kpi-value">${(counts.matched || 0).toLocaleString()}</div>

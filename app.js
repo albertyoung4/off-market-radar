@@ -1966,7 +1966,87 @@ async function loadTeamActivity() {
       '</tr>';
     }).join('');
 
-    var activeTeamTab = window._teamTab || 'sessions';
+    // Build Summary tab: aggregate all users by day, then by week
+    var summaryDailyMap = {};
+    for (var sd of dailyRows) {
+      if (!summaryDailyMap[sd.date]) {
+        summaryDailyMap[sd.date] = { date: sd.date, collectors: 0, sessions: 0, totalMinutes: 0, totalPosts: 0, uniqueMatches: 0 };
+      }
+      summaryDailyMap[sd.date].collectors++;
+      summaryDailyMap[sd.date].sessions += sd.sessions;
+      summaryDailyMap[sd.date].totalMinutes += sd.totalMinutes;
+      summaryDailyMap[sd.date].totalPosts += sd.totalPosts;
+      summaryDailyMap[sd.date].uniqueMatches += sd.uniqueMatches;
+    }
+    var summaryDailyArr = Object.values(summaryDailyMap).sort(function(a, b) { return b.date.localeCompare(a.date); });
+
+    // Weekly aggregation — group by week starting Monday
+    function getWeekKey(dateStr) {
+      // dateStr is MM/DD/YYYY
+      var parts = dateStr.split('/');
+      var d = new Date(parts[2], parts[0] - 1, parts[1]);
+      var day = d.getDay();
+      var diff = d.getDate() - day + (day === 0 ? -6 : 1); // Monday
+      var monday = new Date(d.setDate(diff));
+      var sun = new Date(monday);
+      sun.setDate(sun.getDate() + 6);
+      var fmt = function(dt) { return (dt.getMonth()+1) + '/' + dt.getDate() + '/' + String(dt.getFullYear()).slice(2); };
+      return fmt(monday) + ' – ' + fmt(sun);
+    }
+    var summaryWeeklyMap = {};
+    for (var sw of summaryDailyArr) {
+      var wk = getWeekKey(sw.date);
+      if (!summaryWeeklyMap[wk]) {
+        summaryWeeklyMap[wk] = { week: wk, days: 0, collectors: new Set(), sessions: 0, totalMinutes: 0, totalPosts: 0, uniqueMatches: 0 };
+      }
+      summaryWeeklyMap[wk].days++;
+      // Can't easily track unique collectors across days in simple aggregation, use max
+      summaryWeeklyMap[wk].collectors.add(sw.date); // placeholder — we'll fix below
+      summaryWeeklyMap[wk].sessions += sw.sessions;
+      summaryWeeklyMap[wk].totalMinutes += sw.totalMinutes;
+      summaryWeeklyMap[wk].totalPosts += sw.totalPosts;
+      summaryWeeklyMap[wk].uniqueMatches += sw.uniqueMatches;
+    }
+    // Fix collector counts per week
+    var weeklyCollectorMap = {};
+    for (var wcd of dailyRows) {
+      var wk2 = getWeekKey(wcd.date);
+      if (!weeklyCollectorMap[wk2]) weeklyCollectorMap[wk2] = new Set();
+      weeklyCollectorMap[wk2].add(wcd.collector);
+    }
+    var summaryWeeklyArr = Object.values(summaryWeeklyMap).map(function(w) {
+      var ck = weeklyCollectorMap[w.week];
+      return { week: w.week, days: w.days, collectors: ck ? ck.size : 0, sessions: w.sessions, totalMinutes: w.totalMinutes, totalPosts: w.totalPosts, uniqueMatches: w.uniqueMatches };
+    }).sort(function(a, b) { return b.week.localeCompare(a.week); });
+
+    var summaryDailyTableRows = summaryDailyArr.map(function(r) {
+      var mph = r.totalMinutes > 0 ? (r.uniqueMatches / (r.totalMinutes / 60)).toFixed(1) : '0';
+      return '<tr>' +
+        '<td style="font-weight:600;">' + r.date + '</td>' +
+        '<td>' + r.collectors + '</td>' +
+        '<td>' + r.sessions + '</td>' +
+        '<td style="font-weight:600;">' + fmtHours(r.totalMinutes) + 'h</td>' +
+        '<td>' + r.totalPosts.toLocaleString() + '</td>' +
+        '<td style="color:var(--green);font-weight:600;">' + r.uniqueMatches + '</td>' +
+        '<td style="color:var(--accent);font-weight:600;">' + mph + '</td>' +
+      '</tr>';
+    }).join('');
+
+    var summaryWeeklyTableRows = summaryWeeklyArr.map(function(r) {
+      var mph = r.totalMinutes > 0 ? (r.uniqueMatches / (r.totalMinutes / 60)).toFixed(1) : '0';
+      return '<tr>' +
+        '<td style="font-weight:600;">' + r.week + '</td>' +
+        '<td>' + r.days + '</td>' +
+        '<td>' + r.collectors + '</td>' +
+        '<td>' + r.sessions + '</td>' +
+        '<td style="font-weight:600;">' + fmtHours(r.totalMinutes) + 'h</td>' +
+        '<td>' + r.totalPosts.toLocaleString() + '</td>' +
+        '<td style="color:var(--green);font-weight:600;">' + r.uniqueMatches + '</td>' +
+        '<td style="color:var(--accent);font-weight:600;">' + mph + '</td>' +
+      '</tr>';
+    }).join('');
+
+    var activeTeamTab = window._teamTab || 'summary';
 
     container.innerHTML = '<div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px;">' +
       '<div class="kpi-card blue"><div class="kpi-glow"></div><div class="kpi-value">' + activeCollectors + '</div><div class="kpi-label">Active Collectors</div></div>' +
@@ -1976,14 +2056,48 @@ async function loadTeamActivity() {
     '</div>' +
 
     '<div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--border);">' +
-      '<button onclick="window._teamTab=\'sessions\'; document.getElementById(\'teamSessionsPanel\').style.display=\'\'; document.getElementById(\'teamDailyPanel\').style.display=\'none\'; this.style.color=\'var(--accent)\'; this.style.borderBottomColor=\'var(--accent)\'; this.nextElementSibling.style.color=\'var(--text-muted)\'; this.nextElementSibling.style.borderBottomColor=\'transparent\';" style="padding:10px 24px;font-size:14px;font-weight:600;cursor:pointer;border:none;background:none;color:' + (activeTeamTab === 'sessions' ? 'var(--accent)' : 'var(--text-muted)') + ';border-bottom:2px solid ' + (activeTeamTab === 'sessions' ? 'var(--accent)' : 'transparent') + ';margin-bottom:-2px;transition:all 0.15s;">' +
+      '<button onclick="switchTeamTab(\'summary\')" id="teamTabSummary" style="padding:10px 24px;font-size:14px;font-weight:600;cursor:pointer;border:none;background:none;color:' + (activeTeamTab === 'summary' ? 'var(--green)' : 'var(--text-muted)') + ';border-bottom:2px solid ' + (activeTeamTab === 'summary' ? 'var(--green)' : 'transparent') + ';margin-bottom:-2px;transition:all 0.15s;">' +
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px;"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>' +
+        'Summary' +
+      '</button>' +
+      '<button onclick="switchTeamTab(\'sessions\')" id="teamTabSessions" style="padding:10px 24px;font-size:14px;font-weight:600;cursor:pointer;border:none;background:none;color:' + (activeTeamTab === 'sessions' ? 'var(--accent)' : 'var(--text-muted)') + ';border-bottom:2px solid ' + (activeTeamTab === 'sessions' ? 'var(--accent)' : 'transparent') + ';margin-bottom:-2px;transition:all 0.15s;">' +
         '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' +
         'Session History (' + sessionRows.length + ')' +
       '</button>' +
-      '<button onclick="window._teamTab=\'daily\'; document.getElementById(\'teamSessionsPanel\').style.display=\'none\'; document.getElementById(\'teamDailyPanel\').style.display=\'\'; this.style.color=\'var(--purple)\'; this.style.borderBottomColor=\'var(--purple)\'; this.previousElementSibling.style.color=\'var(--text-muted)\'; this.previousElementSibling.style.borderBottomColor=\'transparent\';" style="padding:10px 24px;font-size:14px;font-weight:600;cursor:pointer;border:none;background:none;color:' + (activeTeamTab === 'daily' ? 'var(--purple)' : 'var(--text-muted)') + ';border-bottom:2px solid ' + (activeTeamTab === 'daily' ? 'var(--purple)' : 'transparent') + ';margin-bottom:-2px;transition:all 0.15s;">' +
-        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px;"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>' +
-        'Daily Summary (' + dailyRows.length + ')' +
+      '<button onclick="switchTeamTab(\'userdaily\')" id="teamTabUserdaily" style="padding:10px 24px;font-size:14px;font-weight:600;cursor:pointer;border:none;background:none;color:' + (activeTeamTab === 'userdaily' ? 'var(--purple)' : 'var(--text-muted)') + ';border-bottom:2px solid ' + (activeTeamTab === 'userdaily' ? 'var(--purple)' : 'transparent') + ';margin-bottom:-2px;transition:all 0.15s;">' +
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px;"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>' +
+        'User Daily Summary (' + dailyRows.length + ')' +
       '</button>' +
+    '</div>' +
+
+    '<div id="teamSummaryPanel" style="' + (activeTeamTab !== 'summary' ? 'display:none;' : '') + '">' +
+      '<div style="font-size:15px;font-weight:700;margin-bottom:10px;">By Day</div>' +
+      '<table class="deals-table" style="margin-bottom:32px;">' +
+        '<thead><tr>' +
+          '<th>Date</th>' +
+          '<th>Collectors</th>' +
+          '<th>Sessions</th>' +
+          '<th>Total Hours</th>' +
+          '<th>Posts Scanned</th>' +
+          '<th>Unique Matches</th>' +
+          '<th>Matches/Hour</th>' +
+        '</tr></thead>' +
+        '<tbody>' + (summaryDailyTableRows || '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:40px;">No data</td></tr>') + '</tbody>' +
+      '</table>' +
+      '<div style="font-size:15px;font-weight:700;margin-bottom:10px;">By Week</div>' +
+      '<table class="deals-table">' +
+        '<thead><tr>' +
+          '<th>Week</th>' +
+          '<th>Days Active</th>' +
+          '<th>Collectors</th>' +
+          '<th>Sessions</th>' +
+          '<th>Total Hours</th>' +
+          '<th>Posts Scanned</th>' +
+          '<th>Unique Matches</th>' +
+          '<th>Matches/Hour</th>' +
+        '</tr></thead>' +
+        '<tbody>' + (summaryWeeklyTableRows || '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:40px;">No data</td></tr>') + '</tbody>' +
+      '</table>' +
     '</div>' +
 
     '<div id="teamSessionsPanel" style="' + (activeTeamTab !== 'sessions' ? 'display:none;' : '') + '">' +
@@ -2002,7 +2116,7 @@ async function loadTeamActivity() {
       '</table>' +
     '</div>' +
 
-    '<div id="teamDailyPanel" style="' + (activeTeamTab !== 'daily' ? 'display:none;' : '') + '">' +
+    '<div id="teamUserdailyPanel" style="' + (activeTeamTab !== 'userdaily' ? 'display:none;' : '') + '">' +
       '<table class="deals-table">' +
         '<thead><tr>' +
           '<th>Date</th>' +
@@ -2020,6 +2134,22 @@ async function loadTeamActivity() {
   } catch (err) {
     console.error('Failed to load team activity:', err);
     container.innerHTML = '<div style="color:var(--red);text-align:center;padding:40px;">Failed to load team activity: ' + escapeHtml(err.message) + '</div>';
+  }
+}
+
+function switchTeamTab(tab) {
+  window._teamTab = tab;
+  var panels = ['Summary', 'Sessions', 'Userdaily'];
+  var colors = { summary: 'var(--green)', sessions: 'var(--accent)', userdaily: 'var(--purple)' };
+  for (var i = 0; i < panels.length; i++) {
+    var key = panels[i].toLowerCase();
+    var panel = document.getElementById('team' + panels[i] + 'Panel');
+    var btn = document.getElementById('teamTab' + panels[i]);
+    if (panel) panel.style.display = (key === tab) ? '' : 'none';
+    if (btn) {
+      btn.style.color = (key === tab) ? colors[key] : 'var(--text-muted)';
+      btn.style.borderBottomColor = (key === tab) ? colors[key] : 'transparent';
+    }
   }
 }
 

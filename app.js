@@ -1133,6 +1133,8 @@ async function renderWholesalerMap(deals) {
 
 // ===== SOURCES =====
 let sourcesData = [];
+let sourcesCollectors = [];
+const LATEST_SCRAPER_VERSION = '1.1.0';
 
 async function loadSources() {
   const container = document.getElementById('sourcesContent');
@@ -1149,7 +1151,7 @@ async function loadSources() {
 
     while (keepGoing) {
       const { data, count } = await supabaseGet('fb_deal_posts', {
-        select: 'group_name,match_status,captured_at,collector_name',
+        select: 'group_name,match_status,captured_at,collector_name,scraper_version',
         order: 'captured_at.desc',
         limit: batchSize,
         offset,
@@ -1160,6 +1162,7 @@ async function loadSources() {
     }
 
     const map = {};
+    const collectorVersions = {}; // track latest version per collector
     for (const post of allPosts) {
       const name = post.group_name || 'Unknown';
       if (!map[name]) {
@@ -1176,7 +1179,19 @@ async function loadSources() {
       const d = new Date(post.captured_at);
       if (!s.firstSeen || d < s.firstSeen) s.firstSeen = d;
       if (!s.lastSeen || d > s.lastSeen) s.lastSeen = d;
+
+      // Track collector versions
+      if (post.collector_name) {
+        const cn = post.collector_name;
+        if (!collectorVersions[cn]) collectorVersions[cn] = { name: cn, version: null, lastActive: null, total: 0 };
+        collectorVersions[cn].total++;
+        if (post.scraper_version) collectorVersions[cn].version = post.scraper_version;
+        if (!collectorVersions[cn].lastActive || d > collectorVersions[cn].lastActive) collectorVersions[cn].lastActive = d;
+      }
     }
+
+    // Store collector info for rendering
+    sourcesCollectors = Object.values(collectorVersions).sort((a, b) => b.total - a.total);
 
     sourcesData = Object.values(map).map(s => ({
       ...s,
@@ -1268,6 +1283,40 @@ function renderSources() {
         }).join('')}
       </tbody>
     </table>
+
+    ${sourcesCollectors.length > 0 ? `
+    <div style="margin-top:24px;">
+      <div style="font-size:14px;font-weight:600;margin-bottom:10px;color:var(--text);">Collectors</div>
+      <table class="deals-table">
+        <thead>
+          <tr>
+            <th>Collector</th>
+            <th>Posts Collected</th>
+            <th>Last Active</th>
+            <th>Scraper Version</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${sourcesCollectors.map(c => {
+            const isLatest = c.version === LATEST_SCRAPER_VERSION;
+            const versionColor = !c.version ? 'var(--text-muted)' : isLatest ? 'var(--green)' : 'var(--red)';
+            const versionLabel = !c.version ? 'Unknown' : c.version;
+            const badge = !c.version ? '' : isLatest ? ' ✓' : ' ⚠ Update needed';
+            const lastAct = c.lastActive ? new Date(c.lastActive).toLocaleDateString() : '—';
+            return \`
+            <tr>
+              <td style="font-weight:600;">\${escapeHtml(c.name)}</td>
+              <td>\${c.total.toLocaleString()}</td>
+              <td>\${lastAct}</td>
+              <td>
+                <span style="font-weight:600;color:\${versionColor}">v\${versionLabel}\${badge}</span>
+              </td>
+            </tr>\`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+    ` : ''}
   `;
 }
 

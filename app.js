@@ -1761,7 +1761,7 @@ async function loadOutreach() {
 
     while (keepGoing) {
       const { data, count } = await supabaseGet('fb_deal_posts', {
-        select: 'id,post_text,post_url,poster_name,group_name,captured_at,parsed_asking_price,parsed_arv,parsed_full_address,parsed_city,parsed_state,post_images',
+        select: 'id,post_text,post_url,poster_name,group_name,captured_at,parsed_asking_price,parsed_arv,parsed_full_address,parsed_city,parsed_state,parsed_beds,parsed_baths,parsed_sqft,post_images,match_candidates',
         filters: [{ col: 'match_status', val: 'eq.no_match' }],
         order: 'captured_at.desc',
         limit: batchSize,
@@ -1824,10 +1824,30 @@ function renderOutreach(container, commentPosts, dmPosts, otherPosts, totalNoMat
       const dmUrl = fbUrl ? fbUrl.replace(/\/$/, '') + '/messages' : '';
 
       // Build intro message for clipboard
-      const addrSnippet = post.parsed_full_address || loc || 'this property';
-      const introText = outreachTab === 'dms'
-        ? 'Hey ' + posterName + ', I saw your post about ' + addrSnippet + (ask ? ' at ' + ask : '') + '. I\'d love to get more details. Feel free to reach me here or at offmarket@rebuilt.com. Thanks!'
-        : 'Hi ' + posterName + ', I\'m interested in ' + addrSnippet + (ask ? ' (' + ask + ')' : '') + '. Could you send me the details? You can reach me at offmarket@rebuilt.com. Thanks!';
+      var introText = '';
+      if (outreachTab === 'comments') {
+        // Comments: short and simple, they'll see it on the post
+        introText = 'Interested. You can email me at offmarket@rebuilt.com or DM me.';
+      } else {
+        // DMs and Other: reference property details since it's not tied to the post
+        var details = [];
+        var addr = post.parsed_full_address || loc || '';
+        var beds = post.parsed_beds || '';
+        var baths = post.parsed_baths || '';
+        var sqft = post.parsed_sqft ? Number(post.parsed_sqft).toLocaleString() + ' sqft' : '';
+        // Check match_candidates for lot size
+        var mc = (post.match_candidates && post.match_candidates[0]) || {};
+        var lot = mc.area_lot_sf ? (Math.round(mc.area_lot_sf / 43560 * 100) / 100) + ' acres' : '';
+        if (addr) details.push(addr);
+        if (beds && baths) details.push(beds + 'bd/' + baths + 'ba');
+        else if (beds) details.push(beds + ' bed');
+        else if (baths) details.push(baths + ' bath');
+        if (sqft) details.push(sqft);
+        if (lot) details.push(lot);
+        if (ask) details.push(ask);
+        var summary = details.length > 0 ? details.join(' | ') : 'the property you posted';
+        introText = 'Hey ' + posterName + ', I\'m interested in the deal you posted:\n' + summary + '\n\nYou can reach me at offmarket@rebuilt.com. Is this still available?';
+      }
 
       // Store intro in a data attribute (safe encoding)
       const introData = introText.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');

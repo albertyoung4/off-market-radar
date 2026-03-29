@@ -171,6 +171,26 @@ async function supabaseGet(table, { select = '*', filters = [], order, limit, of
   return { data, count };
 }
 
+// PATCH a single row by id
+async function supabasePatch(table, id, updates) {
+  const url = new URL(`${SUPABASE_URL}/rest/v1/${table}`);
+  url.searchParams.set('id', `eq.${id}`);
+  const resp = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=minimal',
+    },
+    body: JSON.stringify(updates),
+  });
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`Supabase PATCH error: ${resp.status} ${err}`);
+  }
+}
+
 function statusFilters(filter) {
   if (filter === 'matches') {
     return [{ col: 'match_status', val: 'in.(matched,multi_match,confirmed)' }];
@@ -1714,6 +1734,7 @@ function toggleDetail(deal, tr) {
               Built ${c.year_built || '?'}<br>
               Lot ${c.area_lot_sf ? (Math.round(c.area_lot_sf / 43560 * 100) / 100) + 'ac' : '?'}
               ${c._score ? ' &middot; Score: ' + c._score : ''}
+              ${deal.match_status === 'multi_match' ? `<br><button class="btn" onclick="event.stopPropagation(); confirmMatch('${deal.id}', ${i})" style="margin-top:6px;background:var(--green);color:#fff;font-size:11px;padding:4px 10px;">✓ Confirm</button>` : ''}
             </div>
           </div>
         </li>`;
@@ -1897,6 +1918,14 @@ function renderCompare() {
           ${deal.post_images.map((url, i) => `<img src="${url}" class="${i === 0 ? 'active' : ''}" onclick="event.stopPropagation(); swapSubjectImg(this, '${url}')">`).join('')}
         </div>
       ` : ''}
+      <div style="display:flex;justify-content:center;gap:12px;margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
+        <button id="confirmMatchBtn" class="btn" onclick="event.stopPropagation(); confirmMatch('${dealId}', ${compareCandidateIndex})" style="background:var(--green);color:#fff;font-weight:600;padding:10px 24px;font-size:14px;">
+          ✓ Confirm This Match
+        </button>
+        <button class="btn" onclick="event.stopPropagation(); rejectMatch('${dealId}')" style="background:var(--red);color:#fff;font-weight:600;padding:10px 24px;font-size:14px;">
+          ✗ No Match
+        </button>
+      </div>
     </div>
   `;
   compareEl.addEventListener('click', (e) => {
@@ -1937,6 +1966,81 @@ function compareKeyHandler(e) {
   if (e.key === 'Escape') closeCompare();
   if (e.key === 'ArrowLeft') compareNav(-1);
   if (e.key === 'ArrowRight') compareNav(1);
+}
+
+// ===== MATCH CONFIRMATION =====
+async function confirmMatch(dealId, candidateIndex) {
+  const deal = allDeals.find(d => d.id === dealId) || wholesalerDeals.find(d => d.id === dealId);
+  if (!deal) return;
+  const candidate = deal.match_candidates?.[candidateIndex];
+  if (!candidate) return;
+
+  const btn = document.getElementById('confirmMatchBtn');
+  if (btn) { btn.textContent = 'Saving...'; btn.disabled = true; }
+
+  try {
+    // Build normalized address from the confirmed candidate
+    const street = candidate.property_address_full || deal.matched_address || '';
+    const city = candidate.property_address_city || deal.parsed_city || '';
+    const state = candidate.property_address_state || deal.parsed_state || '';
+    const zip = candidate.property_address_zip || deal.parsed_zip || '';
+    const parts = [street.trim()];
+    if (city) parts.push(city.trim());
+    const stateZip = [state.trim(), zip.trim()].filter(Boolean).join(' ');
+    if (stateZip) parts.push(stateZip);
+    const normalizedAddr = parts.filter(Boolean).join(', ');
+
+    await supabasePatch('fb_deal_posts', dealId, {
+      match_status: 'confirmed',
+      matched_address: normalizedAddr,
+      match_count: 1,
+      match_confidence: 'manual',
+      match_candidates: [candidate],
+    });
+
+    // Update local data
+    deal.match_status = 'confirmed';
+    deal.matched_address = normalizedAddr;
+    deal.match_count = 1;
+    deal.match_confidence = 'manual';
+    deal.match_candidates = [candidate];
+
+    closeCompare();
+    // Refresh the current view
+    document.querySelectorAll('.detail-row').forEach(el => el.remove());
+    if (typeof loadDeals === 'function' && document.getElementById('view-deals')?.style.display !== 'none') loadDeals();
+    if (typeof loadDashboardDeals === 'function' && document.getElementById('view-dashboard')?.style.display !== 'none') loadDashboardDeals();
+  } catch (err) {
+    console.error('Failed to confirm match:', err);
+    if (btn) { btn.textContent = 'Error — try again'; btn.disabled = false; btn.style.background = 'var(--red)'; }
+  }
+}
+
+async function rejectMatch(dealId) {
+  const deal = allDeals.find(d => d.id === dealId) || wholesalerDeals.find(d => d.id === dealId);
+  if (!deal) return;
+
+  try {
+    await supabasePatch('fb_deal_posts', dealId, {
+      match_status: 'no_match',
+      matched_address: null,
+      match_count: 0,
+      match_confidence: null,
+    });
+
+    deal.match_status = 'no_match';
+    deal.matched_address = null;
+    deal.match_count = 0;
+    deal.match_confidence = null;
+
+    closeCompare();
+    document.querySelectorAll('.detail-row').forEach(el => el.remove());
+    if (typeof loadDeals === 'function' && document.getElementById('view-deals')?.style.display !== 'none') loadDeals();
+    if (typeof loadDashboardDeals === 'function' && document.getElementById('view-dashboard')?.style.display !== 'none') loadDashboardDeals();
+  } catch (err) {
+    console.error('Failed to reject match:', err);
+    alert('Failed to reject match: ' + err.message);
+  }
 }
 
 // ===== EVENT LISTENERS =====

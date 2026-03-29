@@ -1696,6 +1696,7 @@ function renderScraperPage() {
           <div>
             <div style="font-size:18px;font-weight:700;">Latest Version</div>
             <div style="color:var(--green);font-weight:600;font-size:14px;margin-top:4px;">v${LATEST_SCRAPER_VERSION}</div>
+            <div id="zipTimestamp" style="color:var(--text-muted);font-size:12px;margin-top:2px;">Loading build date...</div>
           </div>
           <a href="fb-deal-scraper-latest.zip" download="fb-deal-scraper-v${LATEST_SCRAPER_VERSION}.zip" style="display:inline-flex;align-items:center;gap:8px;padding:12px 28px;border-radius:8px;background:var(--accent);color:#fff;text-decoration:none;font-size:14px;font-weight:600;transition:opacity 0.15s;" onmouseover="this.style.opacity=0.85" onmouseout="this.style.opacity=1">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -1741,6 +1742,30 @@ function renderScraperPage() {
       </div>
     </div>
   `;
+
+  // Fetch the ZIP's last-modified timestamp
+  fetch('fb-deal-scraper-latest.zip', { method: 'HEAD' })
+    .then(function(resp) {
+      const lm = resp.headers.get('last-modified');
+      const el = document.getElementById('zipTimestamp');
+      if (lm && el) {
+        const d = new Date(lm);
+        const mo = d.toLocaleString('en-US', { month: 'short' });
+        const day = d.getDate();
+        const yr = d.getFullYear();
+        let hr = d.getHours();
+        const mn = String(d.getMinutes()).padStart(2, '0');
+        const ampm = hr >= 12 ? 'PM' : 'AM';
+        hr = hr % 12 || 12;
+        el.textContent = 'Built ' + mo + ' ' + day + ', ' + yr + ' at ' + hr + ':' + mn + ' ' + ampm;
+      } else if (el) {
+        el.textContent = '';
+      }
+    })
+    .catch(function() {
+      const el = document.getElementById('zipTimestamp');
+      if (el) el.textContent = '';
+    });
 }
 
 // ===== OUTREACH =====

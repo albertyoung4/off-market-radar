@@ -1964,6 +1964,8 @@ async function loadTeamActivity() {
       '</tr>';
     }).join('');
 
+    var activeTeamTab = window._teamTab || 'sessions';
+
     container.innerHTML = '<div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px;">' +
       '<div class="kpi-card blue"><div class="kpi-glow"></div><div class="kpi-value">' + activeCollectors + '</div><div class="kpi-label">Active Collectors</div></div>' +
       '<div class="kpi-card purple"><div class="kpi-glow"></div><div class="kpi-value">' + totalSessions + '</div><div class="kpi-label">Total Sessions</div></div>' +
@@ -1971,33 +1973,46 @@ async function loadTeamActivity() {
       '<div class="kpi-card green"><div class="kpi-glow"></div><div class="kpi-value">' + totalUniqueMatches.toLocaleString() + '</div><div class="kpi-label">Unique Matches</div></div>' +
     '</div>' +
 
-    '<div style="font-size:16px;font-weight:700;margin-bottom:12px;">Session History</div>' +
-    '<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">A session is a block of scanning where no more than 5 minutes elapses between posts.</div>' +
-    '<table class="deals-table" style="margin-bottom:40px;">' +
-      '<thead><tr>' +
-        '<th>Collector</th>' +
-        '<th>Start Time</th>' +
-        '<th>End Time</th>' +
-        '<th>Duration</th>' +
-        '<th>Posts Scanned</th>' +
-        '<th>Unique Matches</th>' +
-      '</tr></thead>' +
-      '<tbody>' + (sessionTableRows || '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:40px;">No sessions found</td></tr>') + '</tbody>' +
-    '</table>' +
+    '<div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--border);">' +
+      '<button onclick="window._teamTab=\'sessions\'; document.getElementById(\'teamSessionsPanel\').style.display=\'\'; document.getElementById(\'teamDailyPanel\').style.display=\'none\'; this.style.color=\'var(--accent)\'; this.style.borderBottomColor=\'var(--accent)\'; this.nextElementSibling.style.color=\'var(--text-muted)\'; this.nextElementSibling.style.borderBottomColor=\'transparent\';" style="padding:10px 24px;font-size:14px;font-weight:600;cursor:pointer;border:none;background:none;color:' + (activeTeamTab === 'sessions' ? 'var(--accent)' : 'var(--text-muted)') + ';border-bottom:2px solid ' + (activeTeamTab === 'sessions' ? 'var(--accent)' : 'transparent') + ';margin-bottom:-2px;transition:all 0.15s;">' +
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' +
+        'Session History (' + sessionRows.length + ')' +
+      '</button>' +
+      '<button onclick="window._teamTab=\'daily\'; document.getElementById(\'teamSessionsPanel\').style.display=\'none\'; document.getElementById(\'teamDailyPanel\').style.display=\'\'; this.style.color=\'var(--purple)\'; this.style.borderBottomColor=\'var(--purple)\'; this.previousElementSibling.style.color=\'var(--text-muted)\'; this.previousElementSibling.style.borderBottomColor=\'transparent\';" style="padding:10px 24px;font-size:14px;font-weight:600;cursor:pointer;border:none;background:none;color:' + (activeTeamTab === 'daily' ? 'var(--purple)' : 'var(--text-muted)') + ';border-bottom:2px solid ' + (activeTeamTab === 'daily' ? 'var(--purple)' : 'transparent') + ';margin-bottom:-2px;transition:all 0.15s;">' +
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px;"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>' +
+        'Daily Summary (' + dailyRows.length + ')' +
+      '</button>' +
+    '</div>' +
 
-    '<div style="font-size:16px;font-weight:700;margin-bottom:12px;">Daily Summary</div>' +
-    '<table class="deals-table">' +
-      '<thead><tr>' +
-        '<th>Date</th>' +
-        '<th>Collector</th>' +
-        '<th>Sessions</th>' +
-        '<th>Total Hours</th>' +
-        '<th>Posts Scanned</th>' +
-        '<th>Unique Matches</th>' +
-        '<th>Matches/Hour</th>' +
-      '</tr></thead>' +
-      '<tbody>' + (dailyTableRows || '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:40px;">No data</td></tr>') + '</tbody>' +
-    '</table>';
+    '<div id="teamSessionsPanel" style="' + (activeTeamTab !== 'sessions' ? 'display:none;' : '') + '">' +
+      '<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">A session is a block of scanning where no more than 5 minutes elapses between posts.</div>' +
+      '<table class="deals-table">' +
+        '<thead><tr>' +
+          '<th>Collector</th>' +
+          '<th>Start Time</th>' +
+          '<th>End Time</th>' +
+          '<th>Duration</th>' +
+          '<th>Posts Scanned</th>' +
+          '<th>Unique Matches</th>' +
+        '</tr></thead>' +
+        '<tbody>' + (sessionTableRows || '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:40px;">No sessions found</td></tr>') + '</tbody>' +
+      '</table>' +
+    '</div>' +
+
+    '<div id="teamDailyPanel" style="' + (activeTeamTab !== 'daily' ? 'display:none;' : '') + '">' +
+      '<table class="deals-table">' +
+        '<thead><tr>' +
+          '<th>Date</th>' +
+          '<th>Collector</th>' +
+          '<th>Sessions</th>' +
+          '<th>Total Hours</th>' +
+          '<th>Posts Scanned</th>' +
+          '<th>Unique Matches</th>' +
+          '<th>Matches/Hour</th>' +
+        '</tr></thead>' +
+        '<tbody>' + (dailyTableRows || '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:40px;">No data</td></tr>') + '</tbody>' +
+      '</table>' +
+    '</div>';
 
   } catch (err) {
     console.error('Failed to load team activity:', err);

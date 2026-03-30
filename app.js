@@ -11,16 +11,24 @@ let totalCount = 0;
 let currentView = 'dashboard';
 
 // ===== DEDUPLICATION & PROPERTY DATA HELPERS =====
-// Deduplicate deals by matched_address, keeping the first (most recent) occurrence
+// Deduplicate deals by matched_address, keeping the record with the highest price value
 function deduplicateDeals(deals) {
-  const seen = new Set();
-  return deals.filter(d => {
+  const addrMap = new Map();
+  const noAddr = [];
+  for (const d of deals) {
     const addr = (d.matched_address || '').toUpperCase().trim();
-    if (!addr) return true; // keep unmatched deals as-is
-    if (seen.has(addr)) return false;
-    seen.add(addr);
-    return true;
-  });
+    if (!addr) { noAddr.push(d); continue; }
+    const val = Number(d.parsed_arv) || Number(d.parsed_asking_price) || 0;
+    const existing = addrMap.get(addr);
+    if (!existing) {
+      addrMap.set(addr, d);
+    } else {
+      // Keep whichever has the higher price value
+      const existingVal = Number(existing.parsed_arv) || Number(existing.parsed_asking_price) || 0;
+      if (val > existingVal) addrMap.set(addr, d);
+    }
+  }
+  return [...addrMap.values(), ...noAddr];
 }
 
 // Build a normalized full address from property registry data
@@ -459,7 +467,7 @@ async function loadKPIs() {
     const gmvPromise = supabaseGet('fb_deal_posts', {
       select: 'parsed_arv,parsed_asking_price,matched_address',
       filters: [{ col: 'match_status', val: 'in.(matched,multi_match,confirmed)' }],
-      limit: 5000,
+      limit: 10000,
     });
 
     const wholesalerPromise = supabaseGet('fb_deal_posts', {

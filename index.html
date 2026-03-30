@@ -983,21 +983,21 @@
 
     <!-- Main Content -->
     <main class="main-content">
+      <header class="header">
+        <div class="header-left">
+          <h1 class="header-title" id="headerTitle">Dashboard</h1>
+        </div>
+        <div class="header-right">
+          <div class="header-sync" id="lastSync">
+            <span class="dot"></span>
+            <span>Connecting...</span>
+          </div>
+          <button class="btn btn-icon" onclick="refreshData()" title="Refresh">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          </button>
+        </div>
+      </header>
       <div class="page-container">
-        <header class="header">
-          <div class="header-left">
-            <h1 class="header-title" id="headerTitle">Dashboard</h1>
-          </div>
-          <div class="header-right">
-            <div class="header-sync" id="lastSync">
-              <span class="dot"></span>
-              <span>Connecting...</span>
-            </div>
-            <button class="btn btn-icon" onclick="refreshData()" title="Refresh">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-            </button>
-          </div>
-        </header>
 
         <!-- ===== DASHBOARD VIEW ===== -->
         <div class="view active" id="view-dashboard">

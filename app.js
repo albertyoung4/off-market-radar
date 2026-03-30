@@ -2454,7 +2454,7 @@ async function loadQualityControl() {
   try {
     // Fetch all matched/multi_match/confirmed deals with parsed fields and candidates
     const { data: deals } = await supabaseGetAll('fb_deal_posts', {
-      select: 'id,parsed_full_address,parsed_city,parsed_state,parsed_zip,parsed_beds,parsed_baths,parsed_sqft,parsed_acreage,parsed_year_built,matched_address,match_status,match_confidence,match_candidates,poster_name,captured_at',
+      select: 'id,parsed_full_address,parsed_city,parsed_state,parsed_zip,parsed_beds,parsed_baths,parsed_sqft,matched_address,match_status,match_confidence,match_candidates,poster_name,captured_at',
       filters: [{ col: 'match_status', val: 'in.(matched,multi_match,confirmed)' }],
     });
 

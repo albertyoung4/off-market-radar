@@ -956,6 +956,13 @@
           <span class="nav-label">Outreach</span>
         </a>
 
+        <a class="nav-item" data-view="qc" onclick="switchView('qc')">
+          <span class="nav-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          </span>
+          <span class="nav-label">Quality Control</span>
+        </a>
+
         <div class="nav-section-label">Management</div>
         <a class="nav-item" data-view="sources" onclick="switchView('sources')">
           <span class="nav-icon">
@@ -1116,6 +1123,11 @@
           <div id="transactionsContent"></div>
         </div>
 
+        <!-- ===== QUALITY CONTROL VIEW ===== -->
+        <div class="view" id="view-qc">
+          <div id="qcContent"></div>
+        </div>
+
         <!-- ===== OUTREACH VIEW ===== -->
         <div class="view" id="view-outreach">
           <div id="outreachContent"></div>
@@ -1135,6 +1147,6 @@
     </main>
   </div>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=2.3"></script>
 </body>
 </html>

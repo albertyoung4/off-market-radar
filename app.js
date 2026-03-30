@@ -112,6 +112,7 @@ function switchView(view) {
     markets: 'Market Analytics',
     wholesalers: 'Wholesaler Directory',
     transactions: 'Transactions',
+    qc: 'Quality Control',
     sources: 'Deal Source Catalog',
     outreach: 'Outreach',
     scraper: 'Download Plugin',
@@ -144,6 +145,9 @@ function switchView(view) {
   }
   if (view === 'transactions') {
     loadTransactions();
+  }
+  if (view === 'qc') {
+    loadQualityControl();
   }
   if (view === 'outreach') {
     loadOutreach();
@@ -483,11 +487,25 @@ async function loadKPIs() {
     });
     counts.total = total;
 
-    // Get status counts + GMV data + wholesaler count in parallel
-    const gmvPromise = supabaseGetAll('fb_deal_posts', {
-      select: 'parsed_arv,parsed_asking_price,matched_address',
-      filters: [{ col: 'match_status', val: 'in.(matched,multi_match,confirmed)' }],
-    });
+    // Get status counts + GMV (paginated sum) + wholesaler count in parallel
+    const gmvPromise = (async () => {
+      // Paginate through ALL matched deals to compute GMV server-side-style
+      const allGmvData = [];
+      let offset = 0;
+      const pageSize = 1000;
+      while (true) {
+        const { data } = await supabaseGet('fb_deal_posts', {
+          select: 'parsed_arv,parsed_asking_price,matched_address',
+          filters: [{ col: 'match_status', val: 'in.(matched,multi_match,confirmed)' }],
+          limit: pageSize,
+          offset,
+        });
+        allGmvData.push(...data);
+        if (data.length < pageSize) break;
+        offset += pageSize;
+      }
+      return allGmvData;
+    })();
 
     const wholesalerPromise = supabaseGetAll('fb_deal_posts', {
       select: 'poster_name',
@@ -504,7 +522,7 @@ async function loadKPIs() {
     }));
 
     // Calculate GMV (prefer ARV, fallback to asking price) - dedup by matched address
-    const { data: gmvRaw } = await gmvPromise;
+    const gmvRaw = await gmvPromise;
     const gmvData = deduplicateDeals(gmvRaw);
     let gmv = 0;
     for (const d of gmvData) {
@@ -1236,7 +1254,7 @@ async function renderWholesalerMap(deals) {
 // ===== SOURCES =====
 let sourcesData = [];
 let sourcesCollectors = [];
-const LATEST_SCRAPER_VERSION = '1.3.0';
+const LATEST_SCRAPER_VERSION = '1.6.1';
 
 async function loadSources() {
   const container = document.getElementById('sourcesContent');
@@ -1253,7 +1271,7 @@ async function loadSources() {
 
     while (keepGoing) {
       const { data, count } = await supabaseGet('fb_deal_posts', {
-        select: 'group_name,match_status,captured_at,collector_name,scraper_version',
+        select: 'group_name,match_status,captured_at,collector_name,scraper_version,post_timestamp',
         order: 'captured_at.desc',
         limit: batchSize,
         offset,
@@ -1268,7 +1286,7 @@ async function loadSources() {
     for (const post of allPosts) {
       const name = post.group_name || 'Unknown';
       if (!map[name]) {
-        map[name] = { name, total: 0, matched: 0, multi: 0, noMatch: 0, pending: 0, confirmed: 0, firstSeen: null, lastSeen: null, collectors: new Set() };
+        map[name] = { name, total: 0, matched: 0, multi: 0, noMatch: 0, pending: 0, confirmed: 0, firstSeen: null, lastSeen: null, earliestPost: null, latestPost: null, withTimestamp: 0, collectors: new Set() };
       }
       const s = map[name];
       s.total++;
@@ -1282,11 +1300,22 @@ async function loadSources() {
       if (!s.firstSeen || d < s.firstSeen) s.firstSeen = d;
       if (!s.lastSeen || d > s.lastSeen) s.lastSeen = d;
 
+      // Track post timestamps (actual post date, not scrape date)
+      if (post.post_timestamp) {
+        const pt = new Date(post.post_timestamp);
+        if (!isNaN(pt.getTime())) {
+          s.withTimestamp++;
+          if (!s.earliestPost || pt < s.earliestPost) s.earliestPost = pt;
+          if (!s.latestPost || pt > s.latestPost) s.latestPost = pt;
+        }
+      }
+
       // Track collector versions
       if (post.collector_name) {
         const cn = post.collector_name;
-        if (!collectorVersions[cn]) collectorVersions[cn] = { name: cn, version: null, lastActive: null, total: 0 };
+        if (!collectorVersions[cn]) collectorVersions[cn] = { name: cn, version: null, lastActive: null, total: 0, withTimestamp: 0 };
         collectorVersions[cn].total++;
+        if (post.post_timestamp) collectorVersions[cn].withTimestamp++;
         if (post.scraper_version) collectorVersions[cn].version = post.scraper_version;
         if (!collectorVersions[cn].lastActive || d > collectorVersions[cn].lastActive) collectorVersions[cn].lastActive = d;
       }
@@ -1315,9 +1344,11 @@ function renderSources() {
 
   const totalPosts = sourcesData.reduce((s, g) => s + g.total, 0);
   const totalProcessed = sourcesData.reduce((s, g) => s + g.processed, 0);
+  const totalWithTimestamp = sourcesData.reduce((s, g) => s + (g.withTimestamp || 0), 0);
+  const tsCoverage = totalPosts > 0 ? Math.round((totalWithTimestamp / totalPosts) * 100) : 0;
 
   container.innerHTML = `
-    <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px;">
+    <div class="kpi-grid" style="grid-template-columns:repeat(5,1fr);margin-bottom:20px;">
       <div class="kpi-card blue">
         <div class="kpi-glow"></div>
         <div class="kpi-value">${sourcesData.length}</div>
@@ -1338,6 +1369,11 @@ function renderSources() {
         <div class="kpi-value">${new Set(sourcesData.flatMap(s => s.collectors)).size}</div>
         <div class="kpi-label">Collectors</div>
       </div>
+      <div class="kpi-card ${tsCoverage >= 50 ? 'green' : tsCoverage > 0 ? 'yellow' : 'red'}">
+        <div class="kpi-glow"></div>
+        <div class="kpi-value">${tsCoverage}%</div>
+        <div class="kpi-label">Post Dates Captured</div>
+      </div>
     </div>
     <table class="deals-table">
       <thead>
@@ -1349,7 +1385,8 @@ function renderSources() {
           <th>Multi</th>
           <th>No Match</th>
           <th>Match Rate</th>
-          <th>Date Range</th>
+          <th>Post Dates</th>
+          <th>Scraped Range</th>
           <th>Collectors</th>
         </tr>
       </thead>
@@ -1360,6 +1397,11 @@ function renderSources() {
           const firstStr = fmt(s.firstSeen);
           const lastStr = fmt(s.lastSeen);
           const daySpan = s.firstSeen && s.lastSeen ? Math.round((s.lastSeen - s.firstSeen) / (1000*60*60*24)) : 0;
+          // Post date range (actual post dates, not scrape dates)
+          const epStr = fmt(s.earliestPost);
+          const lpStr = fmt(s.latestPost);
+          const postDaySpan = s.earliestPost && s.latestPost ? Math.round((s.latestPost - s.earliestPost) / (1000*60*60*24)) : 0;
+          const tsPct = s.total > 0 ? Math.round((s.withTimestamp / s.total) * 100) : 0;
           return `
           <tr>
             <td style="font-weight:600;color:var(--accent-hover)">${escapeHtml(s.name)}</td>
@@ -1375,6 +1417,15 @@ function renderSources() {
                 </div>
                 <span style="font-weight:600;font-size:12px;color:${rateColor}">${s.matchRate}%</span>
               </div>
+            </td>
+            <td style="font-size:12px;">
+              ${s.withTimestamp > 0 ? `
+                <div style="color:var(--text);">${epStr} <span style="color:var(--text-light)">→</span> ${lpStr}</div>
+                <div style="color:var(--text-light);font-size:11px;">${postDaySpan}d span · ${tsPct}% dated</div>
+              ` : `
+                <div style="color:var(--text-muted);font-size:11px;">No post dates</div>
+                <div style="color:var(--text-muted);font-size:10px;">Needs v1.6.1+</div>
+              `}
             </td>
             <td style="font-size:12px;">
               <div style="color:var(--text);">${firstStr} <span style="color:var(--text-light)">→</span> ${lastStr}</div>
@@ -1394,6 +1445,7 @@ function renderSources() {
           <tr>
             <th>Collector</th>
             <th>Posts Collected</th>
+            <th>Post Dates Captured</th>
             <th>Last Active</th>
             <th>Scraper Version</th>
           </tr>
@@ -1405,9 +1457,12 @@ function renderSources() {
             var vLabel = !c.version ? 'Unknown' : c.version;
             var vBadge = !c.version ? '' : isLatest ? ' ✓' : ' ⚠ Update needed';
             var lastAct = c.lastActive ? new Date(c.lastActive).toLocaleDateString() : '—';
+            var tsPct = c.total > 0 ? Math.round((c.withTimestamp / c.total) * 100) : 0;
+            var tsColor = tsPct >= 80 ? 'var(--green)' : tsPct > 0 ? 'var(--yellow)' : 'var(--text-muted)';
             return '<tr>' +
               '<td style="font-weight:600;">' + escapeHtml(c.name) + '</td>' +
               '<td>' + c.total.toLocaleString() + '</td>' +
+              '<td><span style="color:' + tsColor + ';font-weight:600;">' + tsPct + '%</span> <span style="color:var(--text-muted);font-size:11px;">(' + c.withTimestamp + '/' + c.total + ')</span></td>' +
               '<td>' + lastAct + '</td>' +
               '<td><span style="font-weight:600;color:' + vColor + '">v' + vLabel + vBadge + '</span></td>' +
             '</tr>';
@@ -2272,8 +2327,72 @@ async function loadTransactions() {
     html += '<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">Checked / Total Matched</div></div>';
     html += '</div>';
 
-    // Wholesaler Transaction Rates table
-    html += '<div class="card" style="padding:20px;margin-bottom:24px;">';
+    // Tab bar
+    html += '<div style="display:flex;gap:0;margin-bottom:20px;border-bottom:2px solid var(--border);">';
+    html += '<button class="tx-tab active" data-tab="details" style="padding:10px 24px;border:none;background:none;color:var(--accent);font-weight:600;font-size:13px;cursor:pointer;border-bottom:2px solid var(--accent);margin-bottom:-2px;">Transaction Details</button>';
+    html += '<button class="tx-tab" data-tab="wholesalers" style="padding:10px 24px;border:none;background:none;color:var(--text-muted);font-weight:600;font-size:13px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Wholesaler Rates</button>';
+    html += '</div>';
+
+    // ─── Tab: Transaction Details ───
+    html += '<div id="tx-tab-details" class="tx-tab-content">';
+    html += '<div class="card" style="padding:20px;">';
+    html += '<div style="font-size:14px;font-weight:600;margin-bottom:14px;color:var(--text-light);">Sold Properties (' + soldDeals.length + ')</div>';
+
+    if (soldDeals.length === 0) {
+      html += '<div style="text-align:center;padding:40px;color:var(--text-muted);">';
+      if (uncheckedDeals.length > 0) {
+        html += 'Transaction check is running — ' + uncheckedDeals.length + ' deals still being analyzed.<br>Check back soon.';
+      } else {
+        html += 'No confirmed sales found yet within the 6-week window.';
+      }
+      html += '</div>';
+    } else {
+      soldDeals.sort((a, b) => new Date(b.transaction_sold_date) - new Date(a.transaction_sold_date));
+
+      html += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">';
+      html += '<thead><tr style="border-bottom:1px solid var(--border);color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">';
+      html += '<th style="text-align:left;padding:8px 12px;">Wholesaler</th>';
+      html += '<th style="text-align:left;padding:8px 12px;">Post Date</th>';
+      html += '<th style="text-align:left;padding:8px 12px;">Address</th>';
+      html += '<th style="text-align:right;padding:8px 12px;">Ask Price</th>';
+      html += '<th style="text-align:left;padding:8px 12px;">Sold Date</th>';
+      html += '<th style="text-align:right;padding:8px 12px;">Sold Price</th>';
+      html += '<th style="text-align:center;padding:8px 12px;">Days to Close</th>';
+      html += '</tr></thead><tbody>';
+
+      for (const d of soldDeals) {
+        const postDate = fmtDate(d.post_timestamp || d.captured_at);
+        const soldDate = fmtDate(d.transaction_sold_date);
+        const askPrice = Number(d.parsed_asking_price) || Number(d.parsed_arv) || 0;
+        const soldPrice = Number(d.transaction_sold_price) || 0;
+        const priceDiff = soldPrice > 0 && askPrice > 0 ? ((soldPrice - askPrice) / askPrice * 100) : null;
+        const diffColor = priceDiff !== null ? (priceDiff >= 0 ? 'var(--green)' : 'var(--red, #ef5350)') : '';
+        // Days between post and sale
+        const postDt = new Date(d.post_timestamp || d.captured_at);
+        const soldDt = new Date(d.transaction_sold_date);
+        const daysToClose = !isNaN(postDt) && !isNaN(soldDt) ? Math.round((soldDt - postDt) / 86400000) : null;
+
+        html += '<tr style="border-bottom:1px solid var(--border);">';
+        html += '<td style="padding:10px 12px;font-weight:500;">' + escapeHtml(d.poster_name || 'Unknown') + '</td>';
+        html += '<td style="padding:10px 12px;color:var(--text-muted);">' + postDate + '</td>';
+        html += '<td style="padding:10px 12px;">' + escapeHtml(d.matched_address || '—') + '</td>';
+        html += '<td style="padding:10px 12px;text-align:right;">' + (askPrice > 0 ? fmtMoney(askPrice) : '—') + '</td>';
+        html += '<td style="padding:10px 12px;color:var(--green);font-weight:500;">' + soldDate + '</td>';
+        html += '<td style="padding:10px 12px;text-align:right;font-weight:600;">' + (soldPrice > 0 ? fmtMoney(soldPrice) : '—');
+        if (priceDiff !== null) {
+          html += ' <span style="font-size:11px;color:' + diffColor + ';">(' + (priceDiff >= 0 ? '+' : '') + priceDiff.toFixed(0) + '%)</span>';
+        }
+        html += '</td>';
+        html += '<td style="padding:10px 12px;text-align:center;color:var(--text-muted);">' + (daysToClose !== null ? daysToClose + 'd' : '—') + '</td>';
+        html += '</tr>';
+      }
+      html += '</tbody></table></div>';
+    }
+    html += '</div></div>';
+
+    // ─── Tab: Wholesaler Rates ───
+    html += '<div id="tx-tab-wholesalers" class="tx-tab-content" style="display:none;">';
+    html += '<div class="card" style="padding:20px;">';
     html += '<div style="font-size:14px;font-weight:600;margin-bottom:14px;color:var(--text-light);">Wholesaler Transaction Rates</div>';
     html += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">';
     html += '<thead><tr style="border-bottom:1px solid var(--border);color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">';
@@ -2294,62 +2413,194 @@ async function loadTransactions() {
       html += '<td style="padding:10px 12px;text-align:right;">' + (w.totalSold > 0 ? fmtMoney(w.totalSold) : '—') + '</td>';
       html += '</tr>';
     }
-    html += '</tbody></table></div></div>';
-
-    // Sold Deals table
-    html += '<div class="card" style="padding:20px;">';
-    html += '<div style="font-size:14px;font-weight:600;margin-bottom:14px;color:var(--text-light);">Sold Properties (' + soldDeals.length + ')</div>';
-
-    if (soldDeals.length === 0) {
-      html += '<div style="text-align:center;padding:40px;color:var(--text-muted);">';
-      if (uncheckedDeals.length > 0) {
-        html += 'Transaction check is running — ' + uncheckedDeals.length + ' deals still being analyzed.<br>Check back soon.';
-      } else {
-        html += 'No confirmed sales found yet within the 6-week window.';
-      }
-      html += '</div>';
-    } else {
-      // Sort by sold date descending
-      soldDeals.sort((a, b) => new Date(b.transaction_sold_date) - new Date(a.transaction_sold_date));
-
-      html += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">';
-      html += '<thead><tr style="border-bottom:1px solid var(--border);color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">';
-      html += '<th style="text-align:left;padding:8px 12px;">Wholesaler</th>';
-      html += '<th style="text-align:left;padding:8px 12px;">Post Date</th>';
-      html += '<th style="text-align:left;padding:8px 12px;">Address</th>';
-      html += '<th style="text-align:right;padding:8px 12px;">Ask Price</th>';
-      html += '<th style="text-align:left;padding:8px 12px;">Sold Date</th>';
-      html += '<th style="text-align:right;padding:8px 12px;">Sold Price</th>';
-      html += '</tr></thead><tbody>';
-
-      for (const d of soldDeals) {
-        const postDate = fmtDate(d.post_timestamp || d.captured_at);
-        const soldDate = fmtDate(d.transaction_sold_date);
-        const askPrice = Number(d.parsed_asking_price) || Number(d.parsed_arv) || 0;
-        const soldPrice = Number(d.transaction_sold_price) || 0;
-        const priceDiff = soldPrice > 0 && askPrice > 0 ? ((soldPrice - askPrice) / askPrice * 100) : null;
-        const diffColor = priceDiff !== null ? (priceDiff >= 0 ? 'var(--green)' : 'var(--red, #ef5350)') : '';
-
-        html += '<tr style="border-bottom:1px solid var(--border);">';
-        html += '<td style="padding:10px 12px;font-weight:500;">' + escapeHtml(d.poster_name || 'Unknown') + '</td>';
-        html += '<td style="padding:10px 12px;color:var(--text-muted);">' + postDate + '</td>';
-        html += '<td style="padding:10px 12px;">' + escapeHtml(d.matched_address || '—') + '</td>';
-        html += '<td style="padding:10px 12px;text-align:right;">' + (askPrice > 0 ? fmtMoney(askPrice) : '—') + '</td>';
-        html += '<td style="padding:10px 12px;color:var(--green);font-weight:500;">' + soldDate + '</td>';
-        html += '<td style="padding:10px 12px;text-align:right;font-weight:600;">' + (soldPrice > 0 ? fmtMoney(soldPrice) : '—');
-        if (priceDiff !== null) {
-          html += ' <span style="font-size:11px;color:' + diffColor + ';">(' + (priceDiff >= 0 ? '+' : '') + priceDiff.toFixed(0) + '%)</span>';
-        }
-        html += '</td></tr>';
-      }
-      html += '</tbody></table></div>';
-    }
-    html += '</div>';
+    html += '</tbody></table></div></div></div>';
 
     container.innerHTML = html;
+
+    // Enforce initial tab visibility (details shown, wholesalers hidden)
+    var detailsTab = document.getElementById('tx-tab-details');
+    var wholesalersTab = document.getElementById('tx-tab-wholesalers');
+    if (detailsTab) detailsTab.style.display = 'block';
+    if (wholesalersTab) wholesalersTab.style.display = 'none';
+
+    // Tab switching logic
+    container.querySelectorAll('.tx-tab').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        container.querySelectorAll('.tx-tab').forEach(function(b) {
+          b.classList.remove('active');
+          b.style.color = 'var(--text-muted)';
+          b.style.borderBottomColor = 'transparent';
+        });
+        btn.classList.add('active');
+        btn.style.color = 'var(--accent)';
+        btn.style.borderBottomColor = 'var(--accent)';
+        container.querySelectorAll('.tx-tab-content').forEach(function(c) { c.style.display = 'none'; });
+        var tabId = 'tx-tab-' + btn.getAttribute('data-tab');
+        var tabEl = document.getElementById(tabId);
+        if (tabEl) tabEl.style.display = 'block';
+      });
+    });
   } catch (err) {
     console.error('Failed to load transactions:', err);
     container.innerHTML = '<div style="text-align:center;padding:60px;color:var(--text-muted);">Error loading transactions: ' + escapeHtml(err.message) + '</div>';
+  }
+}
+
+async function loadQualityControl() {
+  const container = document.getElementById('qcContent');
+  if (!container) return;
+  container.innerHTML = '<div style="text-align:center;padding:60px;color:var(--text-muted);">Loading quality control data...</div>';
+
+  try {
+    // Fetch all matched/multi_match/confirmed deals with parsed fields and candidates
+    const { data: deals } = await supabaseGetAll('fb_deal_posts', {
+      select: 'id,parsed_full_address,parsed_city,parsed_state,parsed_zip,parsed_beds,parsed_baths,parsed_sqft,parsed_acreage,parsed_year_built,matched_address,match_status,match_confidence,match_candidates,poster_name,captured_at',
+      filters: [{ col: 'match_status', val: 'in.(matched,multi_match,confirmed)' }],
+    });
+
+    // Sort by capture date descending
+    deals.sort((a, b) => new Date(b.captured_at) - new Date(a.captured_at));
+
+    // KPI cards
+    const totalMatched = deals.length;
+    const withAttom = deals.filter(d => {
+      const c = d.match_candidates?.[0];
+      return c && c.attom_id;
+    }).length;
+    const noAttom = totalMatched - withAttom;
+    const exactCount = deals.filter(d => d.match_confidence === 'exact').length;
+    const multiCount = deals.filter(d => d.match_status === 'multi_match').length;
+
+    let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px;margin-bottom:24px;">';
+    html += '<div class="card" style="padding:18px;text-align:center;">';
+    html += '<div style="font-size:28px;font-weight:700;color:var(--accent);">' + totalMatched + '</div>';
+    html += '<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">Total Matched</div></div>';
+    html += '<div class="card" style="padding:18px;text-align:center;">';
+    html += '<div style="font-size:28px;font-weight:700;color:var(--green);">' + withAttom + '</div>';
+    html += '<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">With ATTOM ID</div></div>';
+    html += '<div class="card" style="padding:18px;text-align:center;">';
+    html += '<div style="font-size:28px;font-weight:700;color:var(--red, #ef5350);">' + noAttom + '</div>';
+    html += '<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">Missing ATTOM ID</div></div>';
+    html += '<div class="card" style="padding:18px;text-align:center;">';
+    html += '<div style="font-size:28px;font-weight:700;color:var(--purple);">' + exactCount + '</div>';
+    html += '<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">Exact Matches</div></div>';
+    html += '<div class="card" style="padding:18px;text-align:center;">';
+    html += '<div style="font-size:28px;font-weight:700;color:var(--text-muted);">' + multiCount + '</div>';
+    html += '<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">Multi-Match</div></div>';
+    html += '</div>';
+
+    // Filter controls
+    html += '<div class="card" style="padding:16px;margin-bottom:20px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">';
+    html += '<label style="font-size:12px;color:var(--text-muted);font-weight:600;">FILTER:</label>';
+    html += '<button class="qc-filter active" data-filter="all" style="padding:6px 14px;border:1px solid var(--border);border-radius:6px;background:var(--accent);color:#fff;font-size:12px;cursor:pointer;">All (' + totalMatched + ')</button>';
+    html += '<button class="qc-filter" data-filter="no-attom" style="padding:6px 14px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text-muted);font-size:12px;cursor:pointer;">Missing ATTOM (' + noAttom + ')</button>';
+    html += '<button class="qc-filter" data-filter="exact" style="padding:6px 14px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text-muted);font-size:12px;cursor:pointer;">Exact (' + exactCount + ')</button>';
+    html += '<button class="qc-filter" data-filter="multi" style="padding:6px 14px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text-muted);font-size:12px;cursor:pointer;">Multi-Match (' + multiCount + ')</button>';
+    html += '</div>';
+
+    // Table
+    html += '<div class="card" style="padding:20px;">';
+    html += '<div style="overflow-x:auto;"><table id="qcTable" style="width:100%;border-collapse:collapse;font-size:12px;">';
+    html += '<thead><tr style="border-bottom:2px solid var(--border);color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">';
+    html += '<th style="text-align:left;padding:8px 6px;">Confidence</th>';
+    html += '<th colspan="5" style="text-align:center;padding:8px 6px;border-left:2px solid var(--border);background:rgba(99,102,241,0.05);">PARSED FROM POST</th>';
+    html += '<th colspan="5" style="text-align:center;padding:8px 6px;border-left:2px solid var(--border);background:rgba(34,197,94,0.05);">DATABASE MATCH</th>';
+    html += '<th style="text-align:left;padding:8px 6px;border-left:2px solid var(--border);">ATTOM ID</th>';
+    html += '</tr>';
+    html += '<tr style="border-bottom:1px solid var(--border);color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">';
+    html += '<th style="text-align:left;padding:6px;">Type</th>';
+    // Parsed columns
+    html += '<th style="text-align:left;padding:6px;border-left:2px solid var(--border);">Street #</th>';
+    html += '<th style="text-align:left;padding:6px;">Street Name</th>';
+    html += '<th style="text-align:left;padding:6px;">City</th>';
+    html += '<th style="text-align:left;padding:6px;">St</th>';
+    html += '<th style="text-align:left;padding:6px;">Zip</th>';
+    // DB columns
+    html += '<th style="text-align:left;padding:6px;border-left:2px solid var(--border);">Street #</th>';
+    html += '<th style="text-align:left;padding:6px;">Street Name</th>';
+    html += '<th style="text-align:left;padding:6px;">City</th>';
+    html += '<th style="text-align:left;padding:6px;">St</th>';
+    html += '<th style="text-align:left;padding:6px;">Zip</th>';
+    html += '<th style="text-align:left;padding:6px;border-left:2px solid var(--border);">ID</th>';
+    html += '</tr></thead><tbody>';
+
+    for (const d of deals) {
+      // Parse the full_address to extract street number and name
+      const parsedAddr = d.parsed_full_address || '';
+      const parsedMatch = parsedAddr.match(/^(\d+[A-Za-z]?)\s+(.+)/);
+      const parsedStreetNum = parsedMatch ? parsedMatch[1] : '';
+      const parsedStreetName = parsedMatch ? parsedMatch[2] : parsedAddr;
+
+      // DB match data from first candidate
+      const c = d.match_candidates?.[0] || {};
+      const dbStreetNum = c.property_address_house_number || '';
+      const dbStreetName = c.property_address_street_name || '';
+      const dbCity = c.property_address_city || '';
+      const dbState = c.property_address_state || '';
+      const dbZip = c.property_address_zip || '';
+      const attomId = c.attom_id || '';
+      const hasAttom = !!attomId;
+
+      // Confidence badge color
+      const confColor = d.match_confidence === 'exact' ? 'var(--green)' :
+                         d.match_confidence === 'high' ? 'var(--accent)' :
+                         d.match_confidence === 'medium' ? 'orange' : 'var(--text-muted)';
+      const statusLabel = d.match_status === 'multi_match' ? 'multi' : d.match_confidence || '—';
+
+      // Data attributes for filtering
+      const filterAttrs = 'data-has-attom="' + (hasAttom ? 'yes' : 'no') + '" data-confidence="' + (d.match_confidence || '') + '" data-status="' + d.match_status + '"';
+
+      html += '<tr class="qc-row" ' + filterAttrs + ' style="border-bottom:1px solid var(--border);">';
+      html += '<td style="padding:8px 6px;"><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;background:' + confColor + '22;color:' + confColor + ';">' + escapeHtml(statusLabel) + '</span></td>';
+
+      // Parsed columns (purple-tinted)
+      html += '<td style="padding:8px 6px;border-left:2px solid var(--border);font-weight:500;">' + escapeHtml(parsedStreetNum) + '</td>';
+      html += '<td style="padding:8px 6px;">' + escapeHtml(parsedStreetName) + '</td>';
+      html += '<td style="padding:8px 6px;">' + escapeHtml(d.parsed_city || '') + '</td>';
+      html += '<td style="padding:8px 6px;">' + escapeHtml(d.parsed_state || '') + '</td>';
+      html += '<td style="padding:8px 6px;">' + escapeHtml(d.parsed_zip || '') + '</td>';
+
+      // DB match columns (green-tinted)
+      html += '<td style="padding:8px 6px;border-left:2px solid var(--border);font-weight:500;color:var(--green);">' + escapeHtml(dbStreetNum) + '</td>';
+      html += '<td style="padding:8px 6px;color:var(--green);">' + escapeHtml(dbStreetName) + '</td>';
+      html += '<td style="padding:8px 6px;color:var(--green);">' + escapeHtml(dbCity) + '</td>';
+      html += '<td style="padding:8px 6px;color:var(--green);">' + escapeHtml(dbState) + '</td>';
+      html += '<td style="padding:8px 6px;color:var(--green);">' + escapeHtml(dbZip) + '</td>';
+
+      // ATTOM ID
+      html += '<td style="padding:8px 6px;border-left:2px solid var(--border);font-family:monospace;font-size:11px;color:' + (hasAttom ? 'var(--text-light)' : 'var(--red, #ef5350)') + ';">' + (hasAttom ? escapeHtml(String(attomId)) : '—') + '</td>';
+      html += '</tr>';
+    }
+
+    html += '</tbody></table></div></div>';
+    container.innerHTML = html;
+
+    // Filter logic
+    container.querySelectorAll('.qc-filter').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        container.querySelectorAll('.qc-filter').forEach(function(b) {
+          b.style.background = 'var(--surface)';
+          b.style.color = 'var(--text-muted)';
+          b.classList.remove('active');
+        });
+        btn.style.background = 'var(--accent)';
+        btn.style.color = '#fff';
+        btn.classList.add('active');
+
+        var filter = btn.getAttribute('data-filter');
+        container.querySelectorAll('.qc-row').forEach(function(row) {
+          var show = true;
+          if (filter === 'no-attom') show = row.getAttribute('data-has-attom') === 'no';
+          else if (filter === 'exact') show = row.getAttribute('data-confidence') === 'exact';
+          else if (filter === 'multi') show = row.getAttribute('data-status') === 'multi_match';
+          row.style.display = show ? '' : 'none';
+        });
+      });
+    });
+
+  } catch (err) {
+    console.error('Failed to load QC:', err);
+    container.innerHTML = '<div style="text-align:center;padding:60px;color:var(--text-muted);">Error loading quality control: ' + escapeHtml(err.message) + '</div>';
   }
 }
 

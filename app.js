@@ -196,6 +196,22 @@ async function supabaseGet(table, { select = '*', filters = [], order, limit, of
   return { data, count };
 }
 
+// Fetch ALL rows by paginating in chunks of 1000 (PostgREST caps at 1000 per request)
+async function supabaseGetAll(table, { select = '*', filters = [] } = {}) {
+  const pageSize = 1000;
+  let allData = [];
+  let offset = 0;
+  let totalCount = 0;
+  while (true) {
+    const { data, count } = await supabaseGet(table, { select, filters, limit: pageSize, offset });
+    if (count) totalCount = count;
+    allData = allData.concat(data);
+    if (data.length < pageSize) break; // last page
+    offset += pageSize;
+  }
+  return { data: allData, count: totalCount };
+}
+
 // PATCH a single row by id
 async function supabasePatch(table, id, updates) {
   const url = new URL(`${SUPABASE_URL}/rest/v1/${table}`);
@@ -464,16 +480,14 @@ async function loadKPIs() {
     counts.total = total;
 
     // Get status counts + GMV data + wholesaler count in parallel
-    const gmvPromise = supabaseGet('fb_deal_posts', {
+    const gmvPromise = supabaseGetAll('fb_deal_posts', {
       select: 'parsed_arv,parsed_asking_price,matched_address',
       filters: [{ col: 'match_status', val: 'in.(matched,multi_match,confirmed)' }],
-      limit: 10000,
     });
 
-    const wholesalerPromise = supabaseGet('fb_deal_posts', {
+    const wholesalerPromise = supabaseGetAll('fb_deal_posts', {
       select: 'poster_name',
       filters: [{ col: 'match_status', val: 'neq.pending' }],
-      limit: 10000,
     });
 
     await Promise.all(statuses.map(async (s) => {

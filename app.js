@@ -111,6 +111,7 @@ function switchView(view) {
     flow: 'Deal Flow Analytics',
     markets: 'Market Analytics',
     wholesalers: 'Wholesaler Directory',
+    transactions: 'Transactions',
     sources: 'Deal Source Catalog',
     outreach: 'Outreach',
     scraper: 'Download Plugin',
@@ -140,6 +141,9 @@ function switchView(view) {
   }
   if (view === 'markets') {
     loadMarkets();
+  }
+  if (view === 'transactions') {
+    loadTransactions();
   }
   if (view === 'outreach') {
     loadOutreach();
@@ -2196,6 +2200,158 @@ function markOutreachDone(postId) {
 // Patterns to classify outreach type
 const COMMENT_PATTERN = /\bcomment\b|\bleave.*(email|info|number|details)\b|\bdrop.*(email|info|number|details)\b|\bsend.*(email|info|number)\b|\bput.*(email|info)\b|\bemail\s*(below|me|in)\b|\bcomment\s*(below|your|with)\b/i;
 const DM_PATTERN = /\bDM\b|\bdirect\s*message\b|\binbox\s*me\b|\bPM\b|\bprivate\s*message\b|\bmessage\s*me\b|\bsend\s*me\s*a\s*message\b|\bshoot\s*me\s*a\s*(dm|message|pm)\b|\bhit\s*me\s*up\b/i;
+
+// ===== TRANSACTIONS VIEW =====
+async function loadTransactions() {
+  const container = document.getElementById('transactionsContent');
+  if (!container) return;
+
+  container.innerHTML = '<div style="text-align:center;padding:60px;color:var(--text-muted);">Loading transactions...</div>';
+
+  try {
+    // Fetch all matched/confirmed deals with transaction data
+    const { data: allDeals } = await supabaseGetAll('fb_deal_posts', {
+      select: 'id,poster_name,captured_at,post_timestamp,matched_address,parsed_asking_price,parsed_arv,transaction_status,transaction_sold_date,transaction_sold_price,transaction_sale_source,match_status,match_candidates',
+      filters: [{ col: 'match_status', val: 'in.(matched,confirmed)' }],
+    });
+
+    // Separate sold vs all matched
+    const soldDeals = allDeals.filter(d => d.transaction_status === 'sold');
+    const checkedDeals = allDeals.filter(d => d.transaction_status && d.transaction_status !== 'null');
+    const uncheckedDeals = allDeals.filter(d => !d.transaction_status);
+
+    // Compute wholesaler transaction rates
+    const wholesalerMap = {};
+    for (const d of allDeals) {
+      const name = d.poster_name || 'Unknown';
+      if (!wholesalerMap[name]) wholesalerMap[name] = { total: 0, sold: 0, totalAsk: 0, totalSold: 0 };
+      wholesalerMap[name].total++;
+      if (d.transaction_status === 'sold') {
+        wholesalerMap[name].sold++;
+        wholesalerMap[name].totalSold += Number(d.transaction_sold_price) || 0;
+      }
+      wholesalerMap[name].totalAsk += Number(d.parsed_asking_price) || Number(d.parsed_arv) || 0;
+    }
+
+    const wholesalerRates = Object.entries(wholesalerMap)
+      .map(([name, s]) => ({ name, ...s, rate: s.total > 0 ? (s.sold / s.total * 100) : 0 }))
+      .sort((a, b) => b.sold - a.sold || b.total - a.total);
+
+    // Total GMV from sold deals
+    const soldGMV = soldDeals.reduce((sum, d) => sum + (Number(d.transaction_sold_price) || 0), 0);
+    const avgSoldPrice = soldDeals.length > 0 ? soldGMV / soldDeals.length : 0;
+    const overallRate = allDeals.length > 0 ? (soldDeals.length / allDeals.length * 100) : 0;
+
+    const fmtMoney = (v) => v >= 1000000 ? '$' + (v/1000000).toFixed(1) + 'M' : v >= 1000 ? '$' + (v/1000).toFixed(0) + 'K' : '$' + v.toFixed(0);
+    const fmtDate = (d) => {
+      if (!d) return '—';
+      const dt = new Date(d);
+      return (dt.getMonth()+1) + '/' + dt.getDate() + '/' + dt.getFullYear();
+    };
+
+    // KPI cards
+    let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:24px;">';
+    html += '<div class="card" style="padding:18px;text-align:center;">';
+    html += '<div style="font-size:28px;font-weight:700;color:var(--green);">' + soldDeals.length + '</div>';
+    html += '<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">Confirmed Sales</div></div>';
+
+    html += '<div class="card" style="padding:18px;text-align:center;">';
+    html += '<div style="font-size:28px;font-weight:700;color:var(--accent);">' + fmtMoney(soldGMV) + '</div>';
+    html += '<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">Sold Volume</div></div>';
+
+    html += '<div class="card" style="padding:18px;text-align:center;">';
+    html += '<div style="font-size:28px;font-weight:700;color:var(--purple);">' + overallRate.toFixed(1) + '%</div>';
+    html += '<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">Transaction Rate</div></div>';
+
+    html += '<div class="card" style="padding:18px;text-align:center;">';
+    html += '<div style="font-size:28px;font-weight:700;color:var(--text-light);">' + fmtMoney(avgSoldPrice) + '</div>';
+    html += '<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">Avg Sold Price</div></div>';
+
+    html += '<div class="card" style="padding:18px;text-align:center;">';
+    html += '<div style="font-size:28px;font-weight:700;color:var(--text-light);">' + checkedDeals.length + ' / ' + allDeals.length + '</div>';
+    html += '<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">Checked / Total Matched</div></div>';
+    html += '</div>';
+
+    // Wholesaler Transaction Rates table
+    html += '<div class="card" style="padding:20px;margin-bottom:24px;">';
+    html += '<div style="font-size:14px;font-weight:600;margin-bottom:14px;color:var(--text-light);">Wholesaler Transaction Rates</div>';
+    html += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">';
+    html += '<thead><tr style="border-bottom:1px solid var(--border);color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">';
+    html += '<th style="text-align:left;padding:8px 12px;">Wholesaler</th>';
+    html += '<th style="text-align:center;padding:8px 12px;">Matched Deals</th>';
+    html += '<th style="text-align:center;padding:8px 12px;">Sold</th>';
+    html += '<th style="text-align:center;padding:8px 12px;">Rate</th>';
+    html += '<th style="text-align:right;padding:8px 12px;">Total Sold Vol</th>';
+    html += '</tr></thead><tbody>';
+
+    for (const w of wholesalerRates.slice(0, 30)) {
+      const rateColor = w.rate >= 20 ? 'var(--green)' : w.rate >= 10 ? 'var(--accent)' : 'var(--text-muted)';
+      html += '<tr style="border-bottom:1px solid var(--border);">';
+      html += '<td style="padding:10px 12px;font-weight:500;">' + escapeHtml(w.name) + '</td>';
+      html += '<td style="padding:10px 12px;text-align:center;">' + w.total + '</td>';
+      html += '<td style="padding:10px 12px;text-align:center;font-weight:600;color:var(--green);">' + w.sold + '</td>';
+      html += '<td style="padding:10px 12px;text-align:center;font-weight:600;color:' + rateColor + ';">' + w.rate.toFixed(1) + '%</td>';
+      html += '<td style="padding:10px 12px;text-align:right;">' + (w.totalSold > 0 ? fmtMoney(w.totalSold) : '—') + '</td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table></div></div>';
+
+    // Sold Deals table
+    html += '<div class="card" style="padding:20px;">';
+    html += '<div style="font-size:14px;font-weight:600;margin-bottom:14px;color:var(--text-light);">Sold Properties (' + soldDeals.length + ')</div>';
+
+    if (soldDeals.length === 0) {
+      html += '<div style="text-align:center;padding:40px;color:var(--text-muted);">';
+      if (uncheckedDeals.length > 0) {
+        html += 'Transaction check is running — ' + uncheckedDeals.length + ' deals still being analyzed.<br>Check back soon.';
+      } else {
+        html += 'No confirmed sales found yet within the 6-week window.';
+      }
+      html += '</div>';
+    } else {
+      // Sort by sold date descending
+      soldDeals.sort((a, b) => new Date(b.transaction_sold_date) - new Date(a.transaction_sold_date));
+
+      html += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">';
+      html += '<thead><tr style="border-bottom:1px solid var(--border);color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">';
+      html += '<th style="text-align:left;padding:8px 12px;">Wholesaler</th>';
+      html += '<th style="text-align:left;padding:8px 12px;">Post Date</th>';
+      html += '<th style="text-align:left;padding:8px 12px;">Address</th>';
+      html += '<th style="text-align:right;padding:8px 12px;">Ask Price</th>';
+      html += '<th style="text-align:left;padding:8px 12px;">Sold Date</th>';
+      html += '<th style="text-align:right;padding:8px 12px;">Sold Price</th>';
+      html += '</tr></thead><tbody>';
+
+      for (const d of soldDeals) {
+        const postDate = fmtDate(d.post_timestamp || d.captured_at);
+        const soldDate = fmtDate(d.transaction_sold_date);
+        const askPrice = Number(d.parsed_asking_price) || Number(d.parsed_arv) || 0;
+        const soldPrice = Number(d.transaction_sold_price) || 0;
+        const priceDiff = soldPrice > 0 && askPrice > 0 ? ((soldPrice - askPrice) / askPrice * 100) : null;
+        const diffColor = priceDiff !== null ? (priceDiff >= 0 ? 'var(--green)' : 'var(--red, #ef5350)') : '';
+
+        html += '<tr style="border-bottom:1px solid var(--border);">';
+        html += '<td style="padding:10px 12px;font-weight:500;">' + escapeHtml(d.poster_name || 'Unknown') + '</td>';
+        html += '<td style="padding:10px 12px;color:var(--text-muted);">' + postDate + '</td>';
+        html += '<td style="padding:10px 12px;">' + escapeHtml(d.matched_address || '—') + '</td>';
+        html += '<td style="padding:10px 12px;text-align:right;">' + (askPrice > 0 ? fmtMoney(askPrice) : '—') + '</td>';
+        html += '<td style="padding:10px 12px;color:var(--green);font-weight:500;">' + soldDate + '</td>';
+        html += '<td style="padding:10px 12px;text-align:right;font-weight:600;">' + (soldPrice > 0 ? fmtMoney(soldPrice) : '—');
+        if (priceDiff !== null) {
+          html += ' <span style="font-size:11px;color:' + diffColor + ';">(' + (priceDiff >= 0 ? '+' : '') + priceDiff.toFixed(0) + '%)</span>';
+        }
+        html += '</td></tr>';
+      }
+      html += '</tbody></table></div>';
+    }
+    html += '</div>';
+
+    container.innerHTML = html;
+  } catch (err) {
+    console.error('Failed to load transactions:', err);
+    container.innerHTML = '<div style="text-align:center;padding:60px;color:var(--text-muted);">Error loading transactions: ' + escapeHtml(err.message) + '</div>';
+  }
+}
 
 async function loadOutreach() {
   const container = document.getElementById('outreachContent');

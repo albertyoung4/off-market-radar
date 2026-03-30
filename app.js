@@ -2492,9 +2492,9 @@ async function loadQualityControl() {
     // Filter controls
     html += '<div class="card" style="padding:16px;margin-bottom:20px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">';
     html += '<label style="font-size:12px;color:var(--text-muted);font-weight:600;">FILTER:</label>';
-    html += '<button class="qc-filter active" data-filter="all" style="padding:6px 14px;border:1px solid var(--border);border-radius:6px;background:var(--accent);color:#fff;font-size:12px;cursor:pointer;">All (' + totalMatched + ')</button>';
+    html += '<button class="qc-filter" data-filter="all" style="padding:6px 14px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text-muted);font-size:12px;cursor:pointer;">All (' + totalMatched + ')</button>';
     html += '<button class="qc-filter" data-filter="no-attom" style="padding:6px 14px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text-muted);font-size:12px;cursor:pointer;">Missing ATTOM (' + noAttom + ')</button>';
-    html += '<button class="qc-filter" data-filter="exact" style="padding:6px 14px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text-muted);font-size:12px;cursor:pointer;">Exact (' + exactCount + ')</button>';
+    html += '<button class="qc-filter active" data-filter="exact" style="padding:6px 14px;border:1px solid var(--border);border-radius:6px;background:var(--accent);color:#fff;font-size:12px;cursor:pointer;">Exact (' + exactCount + ')</button>';
     html += '<button class="qc-filter" data-filter="multi" style="padding:6px 14px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text-muted);font-size:12px;cursor:pointer;">Multi-Match (' + multiCount + ')</button>';
     html += '</div>';
 
@@ -2503,9 +2503,8 @@ async function loadQualityControl() {
     html += '<div style="overflow-x:auto;"><table id="qcTable" style="width:100%;border-collapse:collapse;font-size:12px;">';
     html += '<thead><tr style="border-bottom:2px solid var(--border);color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">';
     html += '<th style="text-align:left;padding:8px 6px;">Confidence</th>';
-    html += '<th colspan="5" style="text-align:center;padding:8px 6px;border-left:2px solid var(--border);background:rgba(99,102,241,0.05);">PARSED FROM POST</th>';
-    html += '<th colspan="5" style="text-align:center;padding:8px 6px;border-left:2px solid var(--border);background:rgba(34,197,94,0.05);">DATABASE MATCH</th>';
-    html += '<th colspan="5" style="text-align:center;padding:8px 6px;border-left:2px solid var(--border);background:rgba(251,191,36,0.08);">PROPERTY DETAILS</th>';
+    html += '<th colspan="10" style="text-align:center;padding:8px 6px;border-left:2px solid var(--border);background:rgba(99,102,241,0.05);">PARSED FROM POST</th>';
+    html += '<th colspan="10" style="text-align:center;padding:8px 6px;border-left:2px solid var(--border);background:rgba(34,197,94,0.05);">DATABASE MATCH</th>';
     html += '<th style="text-align:left;padding:8px 6px;border-left:2px solid var(--border);">ATTOM ID</th>';
     html += '</tr>';
     html += '<tr style="border-bottom:1px solid var(--border);color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">';
@@ -2516,14 +2515,18 @@ async function loadQualityControl() {
     html += '<th style="text-align:left;padding:6px;">City</th>';
     html += '<th style="text-align:left;padding:6px;">St</th>';
     html += '<th style="text-align:left;padding:6px;">Zip</th>';
+    html += '<th style="text-align:center;padding:6px;">Beds</th>';
+    html += '<th style="text-align:center;padding:6px;">Baths</th>';
+    html += '<th style="text-align:center;padding:6px;">SqFt</th>';
+    html += '<th style="text-align:center;padding:6px;">Yr Built</th>';
+    html += '<th style="text-align:center;padding:6px;">Lot</th>';
     // DB columns
     html += '<th style="text-align:left;padding:6px;border-left:2px solid var(--border);">Street #</th>';
     html += '<th style="text-align:left;padding:6px;">Street Name</th>';
     html += '<th style="text-align:left;padding:6px;">City</th>';
     html += '<th style="text-align:left;padding:6px;">St</th>';
     html += '<th style="text-align:left;padding:6px;">Zip</th>';
-    // Property details columns
-    html += '<th style="text-align:center;padding:6px;border-left:2px solid var(--border);">Beds</th>';
+    html += '<th style="text-align:center;padding:6px;">Beds</th>';
     html += '<th style="text-align:center;padding:6px;">Baths</th>';
     html += '<th style="text-align:center;padding:6px;">SqFt</th>';
     html += '<th style="text-align:center;padding:6px;">Yr Built</th>';
@@ -2560,52 +2563,43 @@ async function loadQualityControl() {
       html += '<tr class="qc-row" ' + filterAttrs + ' style="border-bottom:1px solid var(--border);">';
       html += '<td style="padding:8px 6px;"><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;background:' + confColor + '22;color:' + confColor + ';">' + escapeHtml(statusLabel) + '</span></td>';
 
-      // Parsed columns (purple-tinted)
+      // Parsed columns
+      const parsedBeds = d.parsed_beds || '';
+      const parsedBaths = d.parsed_baths || '';
+      const parsedSqft = d.parsed_sqft || '';
+      const parsedYearBuilt = d.parsed_year_built || '';
+      const parsedLotSqft = d.parsed_lot_sqft || '';
+      const parsedLot = parsedLotSqft ? (Math.round(parsedLotSqft / 43560 * 100) / 100) + 'ac' : '';
+
       html += '<td style="padding:8px 6px;border-left:2px solid var(--border);font-weight:500;">' + escapeHtml(parsedStreetNum) + '</td>';
       html += '<td style="padding:8px 6px;">' + escapeHtml(parsedStreetName) + '</td>';
       html += '<td style="padding:8px 6px;">' + escapeHtml(d.parsed_city || '') + '</td>';
       html += '<td style="padding:8px 6px;">' + escapeHtml(d.parsed_state || '') + '</td>';
       html += '<td style="padding:8px 6px;">' + escapeHtml(d.parsed_zip || '') + '</td>';
+      html += '<td style="padding:8px 6px;text-align:center;">' + escapeHtml(String(parsedBeds || '—')) + '</td>';
+      html += '<td style="padding:8px 6px;text-align:center;">' + escapeHtml(String(parsedBaths || '—')) + '</td>';
+      html += '<td style="padding:8px 6px;text-align:center;">' + (parsedSqft ? escapeHtml(Number(parsedSqft).toLocaleString()) : '—') + '</td>';
+      html += '<td style="padding:8px 6px;text-align:center;">' + escapeHtml(String(parsedYearBuilt || '—')) + '</td>';
+      html += '<td style="padding:8px 6px;text-align:center;">' + escapeHtml(parsedLot || '—') + '</td>';
 
-      // DB match columns (green-tinted)
+      // DB match columns
+      const dbBeds = c.bedrooms_count || '';
+      const dbBaths = c.bath_count || '';
+      const dbSqft = c.area_building || c.living_area_size || '';
+      const dbYearBuilt = c.year_built || '';
+      const dbLotSf = c.area_lot_sf || '';
+      const dbLot = dbLotSf ? (Math.round(dbLotSf / 43560 * 100) / 100) + 'ac' : '';
+
       html += '<td style="padding:8px 6px;border-left:2px solid var(--border);font-weight:500;color:var(--green);">' + escapeHtml(dbStreetNum) + '</td>';
       html += '<td style="padding:8px 6px;color:var(--green);">' + escapeHtml(dbStreetName) + '</td>';
       html += '<td style="padding:8px 6px;color:var(--green);">' + escapeHtml(dbCity) + '</td>';
       html += '<td style="padding:8px 6px;color:var(--green);">' + escapeHtml(dbState) + '</td>';
       html += '<td style="padding:8px 6px;color:var(--green);">' + escapeHtml(dbZip) + '</td>';
-
-      // Property details columns (parsed / db comparison)
-      const parsedBeds = d.parsed_beds || '';
-      const parsedBaths = d.parsed_baths || '';
-      const parsedSqft = d.parsed_sqft || '';
-      const dbBeds = c.bedrooms_count || '';
-      const dbBaths = c.bath_count || '';
-      const dbSqft = c.area_building || c.living_area_size || '';
-      const parsedYearBuilt = d.parsed_year_built || '';
-      const dbYearBuilt = c.year_built || '';
-      const parsedLotSqft = d.parsed_lot_sqft || '';
-      const dbLotSf = c.area_lot_sf || '';
-      const dbLot = dbLotSf ? (Math.round(dbLotSf / 43560 * 100) / 100) + 'ac' : '';
-      const parsedLot = parsedLotSqft ? (Math.round(parsedLotSqft / 43560 * 100) / 100) + 'ac' : '';
-
-      // Helper: show "parsed / db" with mismatch highlighting
-      const detailCell = function(parsed, db) {
-        const p = String(parsed || '—');
-        const d = String(db || '—');
-        if (p === '—' && d === '—') return '<span style="color:var(--text-muted);">—</span>';
-        if (p !== '—' && d !== '—' && p !== d) {
-          return '<span style="color:var(--accent);">' + escapeHtml(p) + '</span><span style="color:var(--text-muted);"> / </span><span style="color:var(--green);">' + escapeHtml(d) + '</span>';
-        }
-        if (p !== '—' && d !== '—') return '<span style="color:var(--green);">' + escapeHtml(d) + '</span>';
-        if (d !== '—') return '<span style="color:var(--green);">' + escapeHtml(d) + '</span>';
-        return '<span style="color:var(--accent);">' + escapeHtml(p) + '</span>';
-      };
-
-      html += '<td style="padding:8px 6px;border-left:2px solid var(--border);text-align:center;font-size:11px;">' + detailCell(parsedBeds, dbBeds) + '</td>';
-      html += '<td style="padding:8px 6px;text-align:center;font-size:11px;">' + detailCell(parsedBaths, dbBaths) + '</td>';
-      html += '<td style="padding:8px 6px;text-align:center;font-size:11px;">' + detailCell(parsedSqft ? Number(parsedSqft).toLocaleString() : '', dbSqft ? Number(dbSqft).toLocaleString() : '') + '</td>';
-      html += '<td style="padding:8px 6px;text-align:center;font-size:11px;">' + detailCell(parsedYearBuilt, dbYearBuilt) + '</td>';
-      html += '<td style="padding:8px 6px;text-align:center;font-size:11px;">' + detailCell(parsedLot, dbLot) + '</td>';
+      html += '<td style="padding:8px 6px;text-align:center;color:var(--green);">' + escapeHtml(String(dbBeds || '—')) + '</td>';
+      html += '<td style="padding:8px 6px;text-align:center;color:var(--green);">' + escapeHtml(String(dbBaths || '—')) + '</td>';
+      html += '<td style="padding:8px 6px;text-align:center;color:var(--green);">' + (dbSqft ? escapeHtml(Number(dbSqft).toLocaleString()) : '—') + '</td>';
+      html += '<td style="padding:8px 6px;text-align:center;color:var(--green);">' + escapeHtml(String(dbYearBuilt || '—')) + '</td>';
+      html += '<td style="padding:8px 6px;text-align:center;color:var(--green);">' + escapeHtml(dbLot || '—') + '</td>';
 
       // ATTOM ID
       html += '<td style="padding:8px 6px;border-left:2px solid var(--border);font-family:monospace;font-size:11px;color:' + (hasAttom ? 'var(--text-light)' : 'var(--red, #ef5350)') + ';">' + (hasAttom ? escapeHtml(String(attomId)) : '—') + '</td>';
@@ -2636,6 +2630,11 @@ async function loadQualityControl() {
           row.style.display = show ? '' : 'none';
         });
       });
+    });
+
+    // Apply default exact filter on load
+    container.querySelectorAll('.qc-row').forEach(function(row) {
+      row.style.display = row.getAttribute('data-confidence') === 'exact' ? '' : 'none';
     });
 
   } catch (err) {

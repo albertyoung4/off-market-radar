@@ -2454,7 +2454,7 @@ async function loadQualityControl() {
   try {
     // Fetch all matched/multi_match/confirmed deals with parsed fields and candidates
     const { data: deals } = await supabaseGetAll('fb_deal_posts', {
-      select: 'id,parsed_full_address,parsed_city,parsed_state,parsed_zip,parsed_beds,parsed_baths,parsed_sqft,matched_address,match_status,match_confidence,match_candidates,poster_name,captured_at',
+      select: 'id,parsed_full_address,parsed_city,parsed_state,parsed_zip,parsed_beds,parsed_baths,parsed_sqft,parsed_year_built,parsed_lot_sqft,matched_address,match_status,match_confidence,match_candidates,poster_name,captured_at',
       filters: [{ col: 'match_status', val: 'in.(matched,multi_match,confirmed)' }],
     });
 
@@ -2581,9 +2581,12 @@ async function loadQualityControl() {
       const dbBeds = c.bedrooms_count || '';
       const dbBaths = c.bath_count || '';
       const dbSqft = c.area_building || c.living_area_size || '';
+      const parsedYearBuilt = d.parsed_year_built || '';
       const dbYearBuilt = c.year_built || '';
+      const parsedLotSqft = d.parsed_lot_sqft || '';
       const dbLotSf = c.area_lot_sf || '';
       const dbLot = dbLotSf ? (Math.round(dbLotSf / 43560 * 100) / 100) + 'ac' : '';
+      const parsedLot = parsedLotSqft ? (Math.round(parsedLotSqft / 43560 * 100) / 100) + 'ac' : '';
 
       // Helper: show "parsed / db" with mismatch highlighting
       const detailCell = function(parsed, db) {
@@ -2601,8 +2604,8 @@ async function loadQualityControl() {
       html += '<td style="padding:8px 6px;border-left:2px solid var(--border);text-align:center;font-size:11px;">' + detailCell(parsedBeds, dbBeds) + '</td>';
       html += '<td style="padding:8px 6px;text-align:center;font-size:11px;">' + detailCell(parsedBaths, dbBaths) + '</td>';
       html += '<td style="padding:8px 6px;text-align:center;font-size:11px;">' + detailCell(parsedSqft ? Number(parsedSqft).toLocaleString() : '', dbSqft ? Number(dbSqft).toLocaleString() : '') + '</td>';
-      html += '<td style="padding:8px 6px;text-align:center;font-size:11px;color:' + (dbYearBuilt ? 'var(--green)' : 'var(--text-muted)') + ';">' + escapeHtml(String(dbYearBuilt || '—')) + '</td>';
-      html += '<td style="padding:8px 6px;text-align:center;font-size:11px;color:' + (dbLot ? 'var(--green)' : 'var(--text-muted)') + ';">' + escapeHtml(dbLot || '—') + '</td>';
+      html += '<td style="padding:8px 6px;text-align:center;font-size:11px;">' + detailCell(parsedYearBuilt, dbYearBuilt) + '</td>';
+      html += '<td style="padding:8px 6px;text-align:center;font-size:11px;">' + detailCell(parsedLot, dbLot) + '</td>';
 
       // ATTOM ID
       html += '<td style="padding:8px 6px;border-left:2px solid var(--border);font-family:monospace;font-size:11px;color:' + (hasAttom ? 'var(--text-light)' : 'var(--red, #ef5350)') + ';">' + (hasAttom ? escapeHtml(String(attomId)) : '—') + '</td>';

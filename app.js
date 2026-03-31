@@ -189,6 +189,8 @@ async function supabaseGet(table, { select = '*', filters = [], order, limit, of
   });
 
   if (!resp.ok) {
+    // 416 = offset past end of results (pagination overshoot) — return empty
+    if (resp.status === 416) return { data: [], count: 0 };
     const err = await resp.text();
     throw new Error(`Supabase error: ${resp.status} ${err}`);
   }

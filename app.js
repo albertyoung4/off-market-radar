@@ -753,19 +753,16 @@ function renderWholesalers() {
       </div>
     </div>
     <div style="overflow-x:auto;max-width:100%;">
-    <table class="deals-table" id="wholesalerTable" style="width:100%;table-layout:auto;">
+    <table class="deals-table" id="wholesalerTable" style="width:100%;table-layout:fixed;">
       <thead>
         <tr>
-          <th style="cursor:pointer" onclick="sortWholesalers('name')">Wholesaler${sortIcon('name')}</th>
-          <th style="cursor:pointer" onclick="sortWholesalers('total')">Posts${sortIcon('total')}</th>
-          <th style="cursor:pointer" onclick="sortWholesalers('matched')">Matched${sortIcon('matched')}</th>
-          <th style="cursor:pointer" onclick="sortWholesalers('multi')">Multi${sortIcon('multi')}</th>
-          <th style="cursor:pointer" onclick="sortWholesalers('noMatch')">No Match${sortIcon('noMatch')}</th>
-          <th style="cursor:pointer" onclick="sortWholesalers('matchRate')">Match Rate${sortIcon('matchRate')}</th>
-          <th style="cursor:pointer" onclick="sortWholesalers('txRate')">Tx Rate${sortIcon('txRate')}</th>
-          <th style="cursor:pointer" onclick="sortWholesalers('avgPrice')">Avg Price${sortIcon('avgPrice')}</th>
-          <th>Groups</th>
-          <th style="cursor:pointer" onclick="sortWholesalers('lastActive')">Last Active${sortIcon('lastActive')}</th>
+          <th style="cursor:pointer;width:30%" onclick="sortWholesalers('name')">Wholesaler${sortIcon('name')}</th>
+          <th style="cursor:pointer;width:8%" onclick="sortWholesalers('total')">Posts${sortIcon('total')}</th>
+          <th style="cursor:pointer;width:10%" onclick="sortWholesalers('matched')">Matched${sortIcon('matched')}</th>
+          <th style="cursor:pointer;width:16%" onclick="sortWholesalers('matchRate')">Match %${sortIcon('matchRate')}</th>
+          <th style="cursor:pointer;width:9%" onclick="sortWholesalers('txRate')">Tx Rate${sortIcon('txRate')}</th>
+          <th style="cursor:pointer;width:12%" onclick="sortWholesalers('avgPrice')">Avg Price${sortIcon('avgPrice')}</th>
+          <th style="cursor:pointer;width:15%" onclick="sortWholesalers('lastActive')">Last Active${sortIcon('lastActive')}</th>
         </tr>
       </thead>
       <tbody id="wholesalerBody">
@@ -774,8 +771,8 @@ function renderWholesalers() {
           const rateBg = w.matchRate >= 60 ? 'var(--green-bg)' : w.matchRate >= 30 ? 'var(--yellow-bg)' : 'var(--red-bg)';
           return `
           <tr class="wholesaler-row" data-wholesaler="${encodeURIComponent(w.name)}" onclick="openWholesalerDetail(decodeURIComponent(this.dataset.wholesaler))" style="cursor:pointer">
-            <td style="font-weight:600;color:var(--accent-hover)">
-              <div style="display:flex;align-items:center;gap:5px;">
+            <td style="font-weight:600;color:var(--accent-hover);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+              <div style="display:flex;align-items:center;gap:5px;overflow:hidden;">
                 ${escapeHtml(w.name)}
                 ${w.phones.length > 0 ? '<span title="' + escapeHtml(w.phones.join(', ')) + '" style="color:var(--green);cursor:help;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg></span>' : ''}
                 ${w.emails.length > 0 ? '<span title="' + escapeHtml(w.emails.join(', ')) + '" style="color:var(--accent);cursor:help;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></span>' : ''}
@@ -792,11 +789,9 @@ function renderWholesalers() {
             </td>
             <td style="font-weight:700">${w.total}</td>
             <td style="color:var(--green)">${w.matched}</td>
-            <td style="color:var(--yellow)">${w.multi}</td>
-            <td style="color:var(--text-light)">${w.noMatch}</td>
             <td>
-              <div style="display:flex;align-items:center;gap:8px;">
-                <div style="flex:1;height:6px;background:rgba(255,255,255,0.05);border-radius:3px;overflow:hidden;min-width:50px;">
+              <div style="display:flex;align-items:center;gap:6px;">
+                <div style="flex:1;height:5px;background:rgba(255,255,255,0.05);border-radius:3px;overflow:hidden;min-width:36px;">
                   <div style="height:100%;width:${w.matchRate}%;background:${rateColor};border-radius:3px;"></div>
                 </div>
                 <span style="font-weight:600;font-size:12px;color:${rateColor}">${w.matchRate}%</span>
@@ -804,7 +799,6 @@ function renderWholesalers() {
             </td>
             <td style="font-weight:600;font-size:12px;color:${w.txRate > 0 ? 'var(--cyan)' : 'var(--text-light)'}">${w.txRate > 0 ? w.txRate + '%' : '-'}</td>
             <td>${w.avgPrice ? '$' + w.avgPrice.toLocaleString() : '-'}</td>
-            <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-muted);font-size:12px">${w.groups.join(', ')}</td>
             <td style="color:var(--text-muted);font-size:12px">${w.lastActive ? formatDate(w.lastActive.toISOString()) : '-'}</td>
           </tr>`;
         }).join('')}

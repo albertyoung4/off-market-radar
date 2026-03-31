@@ -115,6 +115,7 @@ function switchView(view) {
     qc: 'Quality Control',
     sources: 'Deal Source Catalog',
     outreach: 'Outreach',
+    vendors: 'Vendor CRM',
     scraper: 'Download Plugin',
     team: 'Team Activity',
   };
@@ -151,6 +152,9 @@ function switchView(view) {
   }
   if (view === 'outreach') {
     loadOutreach();
+  }
+  if (view === 'vendors') {
+    loadVendors();
   }
   if (view === 'scraper') {
     renderScraperPage();
@@ -3498,6 +3502,268 @@ function saveSettings() {
 }
 
 // ===== INIT =====
+// ===== VENDORS =====
+let vendorsData = [];
+let vendorSortCol = 'posts';
+let vendorSortDir = 'desc';
+let vendorTypeFilter = 'All';
+let vendorSearchTerm = '';
+
+const VENDOR_TYPES = ['All', 'Lender', 'Contractor', 'Agent', 'Title', 'PM', 'Insurance', 'Other'];
+const VENDOR_TYPE_MAP = { lender: 'Lender', contractor: 'Contractor', agent: 'Agent', title_company: 'Title', property_manager: 'PM', insurance: 'Insurance' };
+const VENDOR_TYPE_COLORS = {
+  Lender: 'var(--green)',
+  Contractor: 'var(--yellow)',
+  Agent: 'var(--accent)',
+  Title: 'var(--purple)',
+  PM: 'var(--cyan)',
+  Insurance: 'var(--red)',
+  Other: 'var(--text-muted)',
+};
+const VENDOR_TYPE_BG = {
+  Lender: 'var(--green-bg)',
+  Contractor: 'var(--yellow-bg)',
+  Agent: 'var(--blue-bg)',
+  Title: 'var(--purple-bg)',
+  PM: 'rgba(34,211,238,0.1)',
+  Insurance: 'var(--red-bg)',
+  Other: 'rgba(139,143,163,0.1)',
+};
+
+async function loadVendors() {
+  const container = document.getElementById('vendorsContent');
+  if (!container) return;
+
+  if (vendorsData.length === 0) {
+    container.innerHTML = `<div class="loading"><div class="spinner"></div><div>Loading vendors...</div></div>`;
+  }
+
+  try {
+    const { data: allRows } = await supabaseGetAll('vendors', {
+      select: '*',
+    });
+
+    // Group by poster_name, keep latest per vendor
+    const map = {};
+    for (const row of allRows) {
+      const name = (row.poster_name || 'Unknown').trim();
+      if (!map[name]) {
+        map[name] = { ...row, name, posts: 1 };
+      } else {
+        map[name].posts++;
+        // Keep latest row data
+        const existing = new Date(map[name].last_seen || map[name].captured_at || 0);
+        const incoming = new Date(row.last_seen || row.captured_at || 0);
+        if (incoming > existing) {
+          const prevPosts = map[name].posts;
+          map[name] = { ...row, name, posts: prevPosts };
+        }
+      }
+    }
+
+    vendorsData = Object.values(map).map(v => ({
+      name: v.name,
+      company: v.company_name || '',
+      type: VENDOR_TYPE_MAP[v.vendor_type] || 'Other',
+      phone: v.phone || '',
+      email: v.email || '',
+      markets: Array.isArray(v.markets_served) ? v.markets_served.join(', ') : (v.markets_served || ''),
+      posts: v.posts || 1,
+      lastSeen: v.created_at || null,
+      postText: v.post_text || '',
+      notes: v.notes || '',
+      verified: !!v.verified,
+      postUrl: v.post_url || '',
+      id: v.id,
+    }));
+
+    renderVendors();
+  } catch (err) {
+    console.error('Failed to load vendors:', err);
+    container.innerHTML = `<div style="color:var(--red);text-align:center;padding:40px;">Failed to load vendors: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function sortVendors(col) {
+  if (vendorSortCol === col) {
+    vendorSortDir = vendorSortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    vendorSortCol = col;
+    vendorSortDir = col === 'name' || col === 'company' ? 'asc' : 'desc';
+  }
+  renderVendors();
+}
+
+function setVendorTypeFilter(type) {
+  vendorTypeFilter = type;
+  renderVendors();
+}
+
+function filterVendorTable() {
+  vendorSearchTerm = (document.getElementById('vendorSearch')?.value || '').toLowerCase();
+  renderVendors();
+}
+
+function toggleVendorDetail(idx) {
+  const el = document.getElementById('vendor-detail-' + idx);
+  if (!el) return;
+  if (el.style.maxHeight && el.style.maxHeight !== '0px') {
+    el.style.maxHeight = '0px';
+    el.style.opacity = '0';
+  } else {
+    el.style.maxHeight = '600px';
+    el.style.opacity = '1';
+  }
+}
+
+function renderVendors() {
+  const container = document.getElementById('vendorsContent');
+  if (!container) return;
+
+  // Filter by type
+  let filtered = vendorTypeFilter === 'All' ? [...vendorsData] : vendorsData.filter(v => v.type === vendorTypeFilter);
+
+  // Filter by search
+  if (vendorSearchTerm) {
+    filtered = filtered.filter(v =>
+      v.name.toLowerCase().includes(vendorSearchTerm) ||
+      v.company.toLowerCase().includes(vendorSearchTerm) ||
+      (v.markets || '').toLowerCase().includes(vendorSearchTerm)
+    );
+  }
+
+  // Sort
+  const sorted = filtered.sort((a, b) => {
+    let av = a[vendorSortCol], bv = b[vendorSortCol];
+    if (vendorSortCol === 'name' || vendorSortCol === 'company' || vendorSortCol === 'type' || vendorSortCol === 'markets') {
+      av = (av || '').toLowerCase();
+      bv = (bv || '').toLowerCase();
+      return vendorSortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+    }
+    if (vendorSortCol === 'lastSeen') {
+      av = av ? new Date(av).getTime() : 0;
+      bv = bv ? new Date(bv).getTime() : 0;
+    }
+    return vendorSortDir === 'asc' ? (av || 0) - (bv || 0) : (bv || 0) - (av || 0);
+  });
+
+  const sortIcon = (col) => {
+    if (vendorSortCol !== col) return '';
+    return vendorSortDir === 'asc' ? ' &#9650;' : ' &#9660;';
+  };
+
+  // Type counts
+  const typeCounts = {};
+  for (const v of vendorsData) {
+    typeCounts[v.type] = (typeCounts[v.type] || 0) + 1;
+  }
+  const topTypes = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]).slice(0, 4);
+
+  // KPI cards
+  const kpiHtml = `
+    <div class="kpi-grid" style="grid-template-columns:repeat(${1 + topTypes.length},1fr);margin-bottom:20px;">
+      <div class="kpi-card blue">
+        <div class="kpi-glow"></div>
+        <div class="kpi-value">${vendorsData.length.toLocaleString()}</div>
+        <div class="kpi-label">Total Vendors</div>
+      </div>
+      ${topTypes.map(([type, count]) => {
+        const color = VENDOR_TYPE_COLORS[type] || 'var(--text-muted)';
+        const cssClass = type === 'Lender' ? 'green' : type === 'Contractor' ? 'yellow' : type === 'Agent' ? 'blue' : type === 'Title' ? 'purple' : type === 'PM' ? 'cyan' : type === 'Insurance' ? 'red' : 'blue';
+        return `<div class="kpi-card ${cssClass}">
+          <div class="kpi-glow"></div>
+          <div class="kpi-value">${count}</div>
+          <div class="kpi-label">${escapeHtml(type === 'PM' ? 'Property Mgrs' : type + 's')}</div>
+        </div>`;
+      }).join('')}
+    </div>
+  `;
+
+  // Filter pills
+  const pillsHtml = VENDOR_TYPES.map(type => {
+    const count = type === 'All' ? vendorsData.length : (typeCounts[type] || 0);
+    const active = vendorTypeFilter === type;
+    const color = VENDOR_TYPE_COLORS[type] || 'var(--accent)';
+    return `<button onclick="setVendorTypeFilter('${type}')" style="padding:6px 14px;border-radius:20px;border:1px solid ${active ? color : 'var(--border)'};background:${active ? (VENDOR_TYPE_BG[type] || 'var(--blue-bg)') : 'transparent'};color:${active ? color : 'var(--text-muted)'};font-size:12px;font-family:inherit;cursor:pointer;font-weight:${active ? '600' : '500'};transition:all var(--transition);">${escapeHtml(type)} <span style="opacity:0.7">${count}</span></button>`;
+  }).join('');
+
+  // Table rows
+  const rowsHtml = sorted.map((v, idx) => {
+    const typeColor = VENDOR_TYPE_COLORS[v.type] || 'var(--text-muted)';
+    const typeBg = VENDOR_TYPE_BG[v.type] || 'rgba(139,143,163,0.1)';
+    const postText = Array.isArray(v.postText) ? v.postText.join('\n') : (v.postText || '');
+    const phoneLink = v.phone ? `<a href="tel:${v.phone.replace(/[^+\d]/g, '')}" onclick="event.stopPropagation();" style="color:var(--green);text-decoration:none;">${escapeHtml(v.phone)}</a>` : '<span style="color:var(--text-light)">-</span>';
+    const emailLink = v.email ? `<a href="mailto:${escapeHtml(v.email)}" onclick="event.stopPropagation();" style="color:var(--accent);text-decoration:none;">${escapeHtml(v.email)}</a>` : '<span style="color:var(--text-light)">-</span>';
+    const lastSeenStr = v.lastSeen ? formatDate(v.lastSeen) : '-';
+
+    return `
+      <tr class="vendor-row" onclick="toggleVendorDetail(${idx})" style="cursor:pointer;">
+        <td style="font-weight:600;color:var(--accent-hover);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(v.name)}</td>
+        <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(v.company)}</td>
+        <td><span style="display:inline-block;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;color:${typeColor};background:${typeBg};">${escapeHtml(v.type)}</span></td>
+        <td>${phoneLink}</td>
+        <td>${emailLink}</td>
+        <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-muted);font-size:12px;">${escapeHtml(v.markets || '-')}</td>
+        <td style="font-weight:700;">${v.posts}</td>
+        <td style="color:var(--text-muted);font-size:12px;">${lastSeenStr}</td>
+      </tr>
+      <tr>
+        <td colspan="8" style="padding:0;border:none;">
+          <div id="vendor-detail-${idx}" style="max-height:0;opacity:0;overflow:hidden;transition:max-height 0.3s ease, opacity 0.2s ease;">
+            <div style="padding:16px 20px;background:var(--surface-alt);border-radius:0 0 var(--radius) var(--radius);margin-bottom:4px;">
+              ${postText ? `<div style="margin-bottom:12px;"><div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Latest Post</div><div style="font-size:13px;color:var(--text);line-height:1.6;white-space:pre-wrap;max-height:200px;overflow-y:auto;">${escapeHtml(postText.length > 1000 ? postText.substring(0, 1000) + '...' : postText)}</div></div>` : ''}
+              <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;">
+                ${v.postUrl ? `<a href="${escapeHtml(v.postUrl)}" target="_blank" onclick="event.stopPropagation();" style="font-size:12px;color:var(--accent);text-decoration:none;display:inline-flex;align-items:center;gap:4px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg> View FB Post</a>` : ''}
+                <span style="font-size:12px;color:var(--text-muted);display:inline-flex;align-items:center;gap:4px;">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                  Notes: ${escapeHtml(v.notes || 'None')}
+                </span>
+                <span style="font-size:12px;display:inline-flex;align-items:center;gap:4px;color:${v.verified ? 'var(--green)' : 'var(--text-light)'};">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                  ${v.verified ? 'Verified' : 'Unverified'}
+                </span>
+              </div>
+            </div>
+          </div>
+        </td>
+      </tr>`;
+  }).join('');
+
+  container.innerHTML = `
+    ${kpiHtml}
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;">
+      ${pillsHtml}
+    </div>
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <input type="text" id="vendorSearch" placeholder="Search by name, company, or market..." oninput="filterVendorTable()" value="${escapeHtml(vendorSearchTerm)}" style="padding:8px 14px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;background:var(--surface);color:var(--text);outline:none;width:300px;">
+      </div>
+      <div class="toolbar-right">
+        <span class="deal-count-label">${sorted.length} vendor${sorted.length !== 1 ? 's' : ''}</span>
+      </div>
+    </div>
+    <div style="overflow-x:auto;max-width:100%;">
+    <table class="deals-table" id="vendorTable" style="width:100%;table-layout:fixed;">
+      <thead>
+        <tr>
+          <th style="cursor:pointer;width:18%" onclick="sortVendors('name')">Name${sortIcon('name')}</th>
+          <th style="cursor:pointer;width:14%" onclick="sortVendors('company')">Company${sortIcon('company')}</th>
+          <th style="cursor:pointer;width:10%" onclick="sortVendors('type')">Type${sortIcon('type')}</th>
+          <th style="width:12%">Phone</th>
+          <th style="width:16%">Email</th>
+          <th style="cursor:pointer;width:12%" onclick="sortVendors('markets')">Markets${sortIcon('markets')}</th>
+          <th style="cursor:pointer;width:7%" onclick="sortVendors('posts')">Posts${sortIcon('posts')}</th>
+          <th style="cursor:pointer;width:11%" onclick="sortVendors('lastSeen')">Last Seen${sortIcon('lastSeen')}</th>
+        </tr>
+      </thead>
+      <tbody id="vendorBody">
+        ${rowsHtml}
+      </tbody>
+    </table>
+    </div>
+  `;
+}
+
 function init() {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
     document.getElementById('dashLoadingState').innerHTML = `

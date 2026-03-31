@@ -499,11 +499,13 @@ async function loadKPIs() {
     });
 
     // Get non-match counts in parallel (these don't need dedup)
+    // Use exact count for pending since accuracy matters for queue monitoring
     const nonMatchCounts = Promise.all(['no_match', 'pending'].map(async (s) => {
       const { count } = await supabaseGet('fb_deal_posts', {
         select: 'id',
         filters: [{ col: 'match_status', val: `eq.${s}` }],
         limit: 0,
+        countMode: s === 'pending' ? 'exact' : 'planned',
       });
       counts[s] = count;
     }));

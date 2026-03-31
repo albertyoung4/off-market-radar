@@ -3089,8 +3089,6 @@ function renderDealsToTable(deals, tbodyId) {
     tr.innerHTML = `
       <td>${formatDate(deal.captured_at)}</td>
       <td style="color:${deal.post_timestamp ? 'var(--text)' : 'var(--text-light)'}">${deal.post_timestamp ? formatDate(deal.post_timestamp) : '—'}</td>
-      <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(deal.group_name || '-')}</td>
-      <td>${escapeHtml(parsedAddress(deal))}</td>
       <td style="font-weight:600;color:${addrColor}">${escapeHtml(buildFullAddress(deal))}</td>
       <td>${deal.parsed_beds || '?'}/${deal.parsed_baths || '?'} &middot; ${deal.parsed_sqft ? Number(deal.parsed_sqft).toLocaleString() + 'sf' : '?'}</td>
       <td>${formatPrice(deal.parsed_asking_price)}</td>
@@ -3116,7 +3114,7 @@ function toggleDetail(deal, tr) {
   const detailRow = document.createElement('tr');
   detailRow.classList.add('detail-row');
   const td = document.createElement('td');
-  td.colSpan = 10;
+  td.colSpan = 8;
 
   const candidates = deal.match_candidates || [];
 
@@ -3327,10 +3325,10 @@ function renderCompare() {
         </div>
       ` : ''}
       <div style="display:flex;justify-content:center;gap:12px;margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
-        <button id="confirmMatchBtn" class="btn" onclick="event.stopPropagation(); confirmMatch('${dealId}', ${compareCandidateIndex})" style="background:var(--green);color:#fff;font-weight:600;padding:10px 24px;font-size:14px;">
+        <button id="confirmMatchBtn" class="btn" onclick="event.stopPropagation(); confirmMatch('${compareDealId}', ${compareCandidateIndex})" style="background:var(--green);color:#fff;font-weight:600;padding:10px 24px;font-size:14px;">
           ✓ Confirm This Match
         </button>
-        <button class="btn" onclick="event.stopPropagation(); rejectMatch('${dealId}')" style="background:var(--red);color:#fff;font-weight:600;padding:10px 24px;font-size:14px;">
+        <button class="btn" onclick="event.stopPropagation(); rejectMatch('${compareDealId}')" style="background:var(--red);color:#fff;font-weight:600;padding:10px 24px;font-size:14px;">
           ✗ No Match
         </button>
       </div>
@@ -3399,18 +3397,18 @@ async function confirmMatch(dealId, candidateIndex) {
     const normalizedAddr = parts.filter(Boolean).join(', ');
 
     await supabasePatch('fb_deal_posts', dealId, {
-      match_status: 'confirmed',
+      match_status: 'matched',
       matched_address: normalizedAddr,
       match_count: 1,
-      match_confidence: 'manual',
+      match_confidence: 'exact',
       match_candidates: [candidate],
     });
 
     // Update local data
-    deal.match_status = 'confirmed';
+    deal.match_status = 'matched';
     deal.matched_address = normalizedAddr;
     deal.match_count = 1;
-    deal.match_confidence = 'manual';
+    deal.match_confidence = 'exact';
     deal.match_candidates = [candidate];
 
     closeCompare();

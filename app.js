@@ -2369,7 +2369,7 @@ async function loadTransactions() {
         html += '<tr style="border-bottom:1px solid var(--border);">';
         html += '<td style="padding:10px 12px;font-weight:500;">' + escapeHtml(d.poster_name || 'Unknown') + '</td>';
         html += '<td style="padding:10px 12px;color:var(--text-muted);">' + postDate + '</td>';
-        html += '<td style="padding:10px 12px;">' + escapeHtml(buildFullAddress(d) || d.matched_address || '—') + '</td>';
+        html += '<td style="padding:10px 12px;">' + escapeHtml(normalizeAddress(d) || d.matched_address || '—') + '</td>';
         html += '<td style="padding:10px 12px;text-align:right;">' + (askPrice > 0 ? fmtMoney(askPrice) : '—') + '</td>';
         html += '<td style="padding:10px 12px;color:var(--green);font-weight:500;">' + soldDate + '</td>';
         html += '<td style="padding:10px 12px;text-align:right;font-weight:600;">' + (soldPrice > 0 ? fmtMoney(soldPrice) : '—');

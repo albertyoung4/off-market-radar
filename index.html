@@ -448,6 +448,12 @@
       vertical-align: middle;
       white-space: nowrap;
     }
+    .deals-table td:nth-child(3),
+    .deals-table td:nth-child(4) {
+      white-space: normal;
+      max-width: 220px;
+      word-break: break-word;
+    }
     .deals-table tbody tr {
       cursor: pointer;
       transition: background var(--transition);
@@ -1038,22 +1044,24 @@
             <div class="spinner"></div>
             <div>Loading dashboard...</div>
           </div>
-          <table class="deals-table" id="dashDealsTable" style="display:none">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Group</th>
-                <th>Parsed Address</th>
-                <th>Resolved Address</th>
-                <th>Beds/Bath/SqFt</th>
-                <th>Price</th>
-                <th>Status</th>
-                <th>#</th>
-                <th>Confidence</th>
-              </tr>
-            </thead>
-            <tbody id="dashDealsBody"></tbody>
-          </table>
+          <div style="overflow-x:auto;max-width:100%;">
+            <table class="deals-table" id="dashDealsTable" style="display:none">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Group</th>
+                  <th>Parsed Address</th>
+                  <th>Resolved Address</th>
+                  <th>Beds/Bath/SqFt</th>
+                  <th>Price</th>
+                  <th>Status</th>
+                  <th>#</th>
+                  <th>Confidence</th>
+                </tr>
+              </thead>
+              <tbody id="dashDealsBody"></tbody>
+            </table>
+          </div>
           <div class="pagination" id="dashPagination"></div>
         </div>
 

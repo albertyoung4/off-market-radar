@@ -487,32 +487,19 @@ async function loadKPIs() {
     });
     counts.total = total;
 
-    // Get status counts + GMV (paginated sum) + wholesaler count in parallel
-    const gmvPromise = (async () => {
-      // Paginate through ALL matched deals to compute GMV server-side-style
-      const allGmvData = [];
-      let offset = 0;
-      const pageSize = 1000;
-      while (true) {
-        const { data } = await supabaseGet('fb_deal_posts', {
-          select: 'parsed_arv,parsed_asking_price,matched_address',
-          filters: [{ col: 'match_status', val: 'in.(matched,multi_match,confirmed)' }],
-          limit: pageSize,
-          offset,
-        });
-        allGmvData.push(...data);
-        if (data.length < pageSize) break;
-        offset += pageSize;
-      }
-      return allGmvData;
-    })();
+    // Fetch all matched deals (for deduped counts + GMV) and wholesaler data in parallel
+    const matchedPromise = supabaseGetAll('fb_deal_posts', {
+      select: 'parsed_arv,parsed_asking_price,matched_address,match_status',
+      filters: [{ col: 'match_status', val: 'in.(matched,multi_match,confirmed)' }],
+    });
 
     const wholesalerPromise = supabaseGetAll('fb_deal_posts', {
       select: 'poster_name',
       filters: [{ col: 'match_status', val: 'neq.pending' }],
     });
 
-    await Promise.all(statuses.map(async (s) => {
+    // Get non-match counts in parallel (these don't need dedup)
+    const nonMatchCounts = Promise.all(['no_match', 'pending'].map(async (s) => {
       const { count } = await supabaseGet('fb_deal_posts', {
         select: 'id',
         filters: [{ col: 'match_status', val: `eq.${s}` }],
@@ -521,9 +508,13 @@ async function loadKPIs() {
       counts[s] = count;
     }));
 
-    // Calculate GMV (prefer ARV, fallback to asking price) - dedup by matched address
-    const gmvRaw = await gmvPromise;
-    const gmvData = deduplicateDeals(gmvRaw);
+    const [{ data: allMatchedRaw }] = await Promise.all([matchedPromise, nonMatchCounts]);
+
+    // Deduplicate matched deals by address for accurate unique counts
+    const gmvData = deduplicateDeals(allMatchedRaw);
+    counts.matched = gmvData.filter(d => d.match_status === 'matched').length;
+    counts.multi_match = gmvData.filter(d => d.match_status === 'multi_match').length;
+    counts.confirmed = gmvData.filter(d => d.match_status === 'confirmed').length;
     let gmv = 0;
     for (const d of gmvData) {
       const val = d.parsed_arv || d.parsed_asking_price;
@@ -1281,9 +1272,10 @@ async function loadSources() {
       if (data.length < batchSize || allPosts.length >= count) keepGoing = false;
     }
 
+    const dedupedPosts = deduplicateDeals(allPosts);
     const map = {};
     const collectorVersions = {}; // track latest version per collector
-    for (const post of allPosts) {
+    for (const post of dedupedPosts) {
       const name = post.group_name || 'Unknown';
       if (!map[name]) {
         map[name] = { name, total: 0, matched: 0, multi: 0, noMatch: 0, pending: 0, confirmed: 0, firstSeen: null, lastSeen: null, earliestPost: null, latestPost: null, withTimestamp: 0, collectors: new Set() };
@@ -1928,7 +1920,8 @@ async function loadTeamActivity() {
       if (result.data.length < tBatchSize || allPosts.length >= result.count) tKeepGoing = false;
     }
 
-    // Group posts by collector
+    // Deduplicate and group posts by collector
+    allPosts = deduplicateDeals(allPosts);
     var byCollector = {};
     for (var p of allPosts) {
       var cn = p.collector_name || 'Unknown';
@@ -2265,10 +2258,11 @@ async function loadTransactions() {
 
   try {
     // Fetch all matched/confirmed deals with transaction data
-    const { data: allDeals } = await supabaseGetAll('fb_deal_posts', {
+    const { data: rawDeals } = await supabaseGetAll('fb_deal_posts', {
       select: 'id,poster_name,captured_at,post_timestamp,matched_address,parsed_asking_price,parsed_arv,transaction_status,transaction_sold_date,transaction_sold_price,transaction_sale_source,match_status,match_candidates',
       filters: [{ col: 'match_status', val: 'in.(matched,confirmed)' }],
     });
+    const allDeals = deduplicateDeals(rawDeals);
 
     // Separate sold vs all matched
     const soldDeals = allDeals.filter(d => d.transaction_status === 'sold');
@@ -2375,7 +2369,7 @@ async function loadTransactions() {
         html += '<tr style="border-bottom:1px solid var(--border);">';
         html += '<td style="padding:10px 12px;font-weight:500;">' + escapeHtml(d.poster_name || 'Unknown') + '</td>';
         html += '<td style="padding:10px 12px;color:var(--text-muted);">' + postDate + '</td>';
-        html += '<td style="padding:10px 12px;">' + escapeHtml(d.matched_address || '—') + '</td>';
+        html += '<td style="padding:10px 12px;">' + escapeHtml(buildFullAddress(d) || d.matched_address || '—') + '</td>';
         html += '<td style="padding:10px 12px;text-align:right;">' + (askPrice > 0 ? fmtMoney(askPrice) : '—') + '</td>';
         html += '<td style="padding:10px 12px;color:var(--green);font-weight:500;">' + soldDate + '</td>';
         html += '<td style="padding:10px 12px;text-align:right;font-weight:600;">' + (soldPrice > 0 ? fmtMoney(soldPrice) : '—');
@@ -2669,12 +2663,13 @@ async function loadOutreach() {
       if (data.length < batchSize || allPosts.length >= count) keepGoing = false;
     }
 
-    // Classify posts
+    // Deduplicate and classify posts
+    const dedupedPosts = deduplicateDeals(allPosts);
     const commentPosts = [];
     const dmPosts = [];
     const otherPosts = [];
 
-    for (const post of allPosts) {
+    for (const post of dedupedPosts) {
       const text = Array.isArray(post.post_text) ? post.post_text.join(' ') : (post.post_text || '');
       const isComment = COMMENT_PATTERN.test(text);
       const isDM = DM_PATTERN.test(text);

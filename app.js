@@ -2458,11 +2458,12 @@ async function loadQualityControl() {
       filters: [{ col: 'match_status', val: 'in.(matched,multi_match,confirmed)' }],
     });
 
-    // Sort by capture date descending
-    deals.sort((a, b) => new Date(b.captured_at) - new Date(a.captured_at));
+    // Deduplicate by matched_address and sort by capture date descending
+    const dedupedDeals = deduplicateDeals(deals);
+    dedupedDeals.sort((a, b) => new Date(b.captured_at) - new Date(a.captured_at));
 
     // KPI cards
-    const totalMatched = deals.length;
+    const totalMatched = dedupedDeals.length;
     const withAttom = deals.filter(d => {
       const c = d.match_candidates?.[0];
       return c && c.attom_id;
@@ -2534,7 +2535,7 @@ async function loadQualityControl() {
     html += '<th style="text-align:left;padding:6px;border-left:2px solid var(--border);">ID</th>';
     html += '</tr></thead><tbody>';
 
-    for (const d of deals) {
+    for (const d of dedupedDeals) {
       // Parse the full_address to extract street number and name
       const parsedAddr = d.parsed_full_address || '';
       const parsedMatch = parsedAddr.match(/^(\d+[A-Za-z]?)\s+(.+)/);

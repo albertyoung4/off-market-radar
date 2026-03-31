@@ -170,7 +170,7 @@ function refreshData() {
 }
 
 // ===== SUPABASE REST HELPERS =====
-async function supabaseGet(table, { select = '*', filters = [], order, limit, offset } = {}) {
+async function supabaseGet(table, { select = '*', filters = [], order, limit, offset, countMode = 'planned' } = {}) {
   const url = new URL(`${SUPABASE_URL}/rest/v1/${table}`);
   url.searchParams.set('select', select);
   for (const f of filters) {
@@ -184,7 +184,7 @@ async function supabaseGet(table, { select = '*', filters = [], order, limit, of
     headers: {
       'apikey': SUPABASE_ANON_KEY,
       'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-      'Prefer': 'count=exact',
+      'Prefer': `count=${countMode}`,
     },
   });
 

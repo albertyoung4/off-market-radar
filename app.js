@@ -607,7 +607,7 @@ async function loadWholesalers() {
 
     while (keepGoing) {
       const { data, count } = await supabaseGet('fb_deal_posts', {
-        select: 'poster_name,group_name,match_status,captured_at,parsed_asking_price,matched_address',
+        select: 'poster_name,group_name,match_status,captured_at,parsed_asking_price,matched_address,transaction_status',
         filters: [{ col: 'match_status', val: 'neq.pending' }],
         order: 'captured_at.desc',
         limit: batchSize,
@@ -655,7 +655,7 @@ async function loadWholesalers() {
       const name = cleanPosterName(post.poster_name || 'Unknown');
       const rawName = post.poster_name || 'Unknown';
       if (!map[name]) {
-        map[name] = { name, rawNames: new Set(), total: 0, matched: 0, multi: 0, noMatch: 0, confirmed: 0, groups: new Set(), lastActive: null, prices: [] };
+        map[name] = { name, rawNames: new Set(), total: 0, matched: 0, multi: 0, noMatch: 0, confirmed: 0, sold: 0, groups: new Set(), lastActive: null, prices: [] };
       }
       map[name].rawNames.add(rawName);
       const w = map[name];
@@ -664,6 +664,7 @@ async function loadWholesalers() {
       else if (post.match_status === 'multi_match') w.multi++;
       else if (post.match_status === 'no_match') w.noMatch++;
       else if (post.match_status === 'confirmed') w.confirmed++;
+      if (post.transaction_status === 'sold') w.sold++;
       if (post.group_name) w.groups.add(post.group_name);
       if (post.parsed_asking_price) w.prices.push(Number(post.parsed_asking_price));
       const d = new Date(post.captured_at);
@@ -680,6 +681,8 @@ async function loadWholesalers() {
         emails: contact.emails,
         matchRate: w.total > 0 ? Math.round(((w.matched + w.multi + w.confirmed) / w.total) * 100) : 0,
         avgPrice: w.prices.length > 0 ? Math.round(w.prices.reduce((a, b) => a + b, 0) / w.prices.length) : 0,
+        sold: w.sold,
+        txRate: (w.matched + w.multi + w.confirmed) > 0 ? Math.round((w.sold / (w.matched + w.multi + w.confirmed)) * 100) : 0,
       };
     });
 
@@ -749,7 +752,8 @@ function renderWholesalers() {
         <span class="deal-count-label">${sorted.length} wholesalers</span>
       </div>
     </div>
-    <table class="deals-table" id="wholesalerTable" style="max-width:1200px;">
+    <div style="overflow-x:auto;max-width:100%;">
+    <table class="deals-table" id="wholesalerTable" style="width:100%;table-layout:auto;">
       <thead>
         <tr>
           <th style="cursor:pointer" onclick="sortWholesalers('name')">Wholesaler${sortIcon('name')}</th>
@@ -758,6 +762,7 @@ function renderWholesalers() {
           <th style="cursor:pointer" onclick="sortWholesalers('multi')">Multi${sortIcon('multi')}</th>
           <th style="cursor:pointer" onclick="sortWholesalers('noMatch')">No Match${sortIcon('noMatch')}</th>
           <th style="cursor:pointer" onclick="sortWholesalers('matchRate')">Match Rate${sortIcon('matchRate')}</th>
+          <th style="cursor:pointer" onclick="sortWholesalers('txRate')">Tx Rate${sortIcon('txRate')}</th>
           <th style="cursor:pointer" onclick="sortWholesalers('avgPrice')">Avg Price${sortIcon('avgPrice')}</th>
           <th>Groups</th>
           <th style="cursor:pointer" onclick="sortWholesalers('lastActive')">Last Active${sortIcon('lastActive')}</th>
@@ -797,6 +802,7 @@ function renderWholesalers() {
                 <span style="font-weight:600;font-size:12px;color:${rateColor}">${w.matchRate}%</span>
               </div>
             </td>
+            <td style="font-weight:600;font-size:12px;color:${w.txRate > 0 ? 'var(--cyan)' : 'var(--text-light)'}">${w.txRate > 0 ? w.txRate + '%' : '-'}</td>
             <td>${w.avgPrice ? '$' + w.avgPrice.toLocaleString() : '-'}</td>
             <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-muted);font-size:12px">${w.groups.join(', ')}</td>
             <td style="color:var(--text-muted);font-size:12px">${w.lastActive ? formatDate(w.lastActive.toISOString()) : '-'}</td>
@@ -804,6 +810,7 @@ function renderWholesalers() {
         }).join('')}
       </tbody>
     </table>
+    </div>
   `;
 }
 
@@ -927,7 +934,7 @@ async function openWholesalerDetail(name) {
     let keepGoing = true;
     while (keepGoing) {
       const { data, count } = await supabaseGet('fb_deal_posts', {
-        select: 'id,post_text,post_url,poster_name,group_name,match_status,captured_at,parsed_asking_price,parsed_arv,parsed_beds,parsed_baths,parsed_sqft,parsed_city,parsed_state,parsed_zip,parsed_full_address,matched_address,match_count,match_confidence,match_candidates',
+        select: 'id,post_text,post_url,poster_name,group_name,match_status,captured_at,parsed_asking_price,parsed_arv,parsed_beds,parsed_baths,parsed_sqft,parsed_city,parsed_state,parsed_zip,parsed_full_address,matched_address,match_count,match_confidence,match_candidates,transaction_status,transaction_sold_date,transaction_sold_price',
         filters: [
           posterFilter,
           { col: 'match_status', val: 'neq.pending' },
@@ -970,6 +977,10 @@ async function openWholesalerDetail(name) {
       const val = Number(d.parsed_arv) || Number(d.parsed_asking_price) || 0;
       gmv += val;
     }
+
+    // Sold properties
+    const soldDeals = cleanedPosts.filter(d => d.transaction_status === 'sold');
+    const txRate = matchedDeals.length > 0 ? (soldDeals.length / matchedDeals.length * 100) : 0;
 
     container.innerHTML = `
       <button class="btn" onclick="renderWholesalers()" style="margin-bottom:16px;">
@@ -1039,7 +1050,7 @@ async function openWholesalerDetail(name) {
           </div>` : ''}
         </div>
       </div>
-      <div class="kpi-grid" style="grid-template-columns:repeat(6,1fr);margin-bottom:20px;">
+      <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));margin-bottom:20px;">
         <div class="kpi-card blue">
           <div class="kpi-glow"></div>
           <div class="kpi-value">${totalCount}</div>
@@ -1070,15 +1081,25 @@ async function openWholesalerDetail(name) {
           <div class="kpi-value">${gmv > 0 ? '$' + (gmv >= 1000000 ? (gmv / 1000000).toFixed(1) + 'M' : (gmv / 1000).toFixed(0) + 'k') : '-'}</div>
           <div class="kpi-label">Total GMV</div>
         </div>
+        <div class="kpi-card cyan">
+          <div class="kpi-glow"></div>
+          <div class="kpi-value">${soldDeals.length}</div>
+          <div class="kpi-label">Sold</div>
+        </div>
+        <div class="kpi-card purple">
+          <div class="kpi-glow"></div>
+          <div class="kpi-value">${txRate > 0 ? txRate.toFixed(1) + '%' : '-'}</div>
+          <div class="kpi-label">Tx Rate</div>
+        </div>
       </div>
 
       <!-- Map + Table side by side -->
-      <div style="display:flex;gap:16px;margin-bottom:20px;">
-        <div style="flex:1;min-width:0;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;max-width:100%;">
+        <div style="min-width:0;">
           <div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--text-light);">Deal Map (${matchedDeals.length} matched)</div>
           <div id="wholesalerMap" style="height:360px;border-radius:var(--radius);border:1px solid var(--border);overflow:hidden;"></div>
         </div>
-        <div style="flex:1;min-width:0;max-height:400px;overflow-y:auto;">
+        <div style="min-width:0;max-height:400px;overflow-y:auto;overflow-x:auto;">
           <div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--text-light);">Matched Deals</div>
           <table class="deals-table" style="font-size:12px;">
             <thead>
@@ -1094,6 +1115,25 @@ async function openWholesalerDetail(name) {
           </table>
         </div>
       </div>
+
+      ${soldDeals.length > 0 ? `
+      <div style="margin-bottom:20px;">
+        <div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--green);">Sold Properties (${soldDeals.length})</div>
+        <div style="overflow-x:auto;">
+          <table class="deals-table" style="font-size:12px;">
+            <thead>
+              <tr>
+                <th>Address</th>
+                <th>Ask Price</th>
+                <th>Sold Date</th>
+                <th>Sold Price</th>
+                <th>Days</th>
+              </tr>
+            </thead>
+            <tbody id="wholesalerSoldBody"></tbody>
+          </table>
+        </div>
+      </div>` : ''}
 
       <details style="margin-bottom:16px;">
         <summary style="cursor:pointer;font-size:13px;font-weight:600;color:var(--text-light);padding:8px 0;">All Posts (${totalCount})</summary>
@@ -1131,6 +1171,31 @@ async function openWholesalerDetail(name) {
       tr.addEventListener('click', () => toggleDetail(deal, tr));
       tr.style.cursor = 'pointer';
       matchedBody.appendChild(tr);
+    }
+
+    // Render sold deals table
+    const soldBody = document.getElementById('wholesalerSoldBody');
+    if (soldBody) {
+      const fmtMoney = (v) => v >= 1000000 ? '$' + (v/1000000).toFixed(1) + 'M' : v >= 1000 ? '$' + (v/1000).toFixed(0) + 'K' : '$' + v.toFixed(0);
+      for (const deal of soldDeals) {
+        const addr = normalizeAddress(deal) || deal.matched_address || '-';
+        const askPrice = Number(deal.parsed_asking_price) || Number(deal.parsed_arv) || 0;
+        const soldPrice = Number(deal.transaction_sold_price) || 0;
+        const postDt = new Date(deal.captured_at);
+        const soldDt = new Date(deal.transaction_sold_date);
+        const days = !isNaN(postDt) && !isNaN(soldDt) ? Math.round((soldDt - postDt) / 86400000) : null;
+        const priceDiff = soldPrice > 0 && askPrice > 0 ? ((soldPrice - askPrice) / askPrice * 100) : null;
+        const diffColor = priceDiff !== null ? (priceDiff >= 0 ? 'var(--green)' : 'var(--red, #ef5350)') : '';
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td style="font-weight:600;">${escapeHtml(addr)}</td>
+          <td>${askPrice > 0 ? fmtMoney(askPrice) : '—'}</td>
+          <td style="color:var(--green);font-weight:500;">${deal.transaction_sold_date ? new Date(deal.transaction_sold_date).toLocaleDateString() : '—'}</td>
+          <td style="font-weight:600;">${soldPrice > 0 ? fmtMoney(soldPrice) : '—'}${priceDiff !== null ? ' <span style="font-size:11px;color:' + diffColor + ';">(' + (priceDiff >= 0 ? '+' : '') + priceDiff.toFixed(0) + '%)</span>' : ''}</td>
+          <td style="text-align:center;color:var(--text-muted);">${days !== null ? days + 'd' : '—'}</td>
+        `;
+        soldBody.appendChild(tr);
+      }
     }
 
     // Render all deals table
@@ -2656,7 +2721,7 @@ async function loadOutreach() {
 
     while (keepGoing) {
       const { data, count } = await supabaseGet('fb_deal_posts', {
-        select: 'id,post_text,post_url,poster_name,group_name,captured_at,parsed_asking_price,parsed_arv,parsed_full_address,parsed_city,parsed_state,parsed_beds,parsed_baths,parsed_sqft,post_images,match_candidates,outreach_status',
+        select: 'id,post_text,post_url,poster_name,group_name,captured_at,parsed_asking_price,parsed_arv,parsed_full_address,parsed_city,parsed_state,parsed_beds,parsed_baths,parsed_sqft,post_images,match_candidates',
         filters: [{ col: 'match_status', val: 'eq.no_match' }],
         order: 'captured_at.desc',
         limit: batchSize,
@@ -3014,6 +3079,7 @@ function renderDealsToTable(deals, tbodyId) {
     const addrColor = addressColor(deal);
     tr.innerHTML = `
       <td>${formatDate(deal.captured_at)}</td>
+      <td style="color:${deal.post_timestamp ? 'var(--text)' : 'var(--text-light)'}">${deal.post_timestamp ? formatDate(deal.post_timestamp) : '—'}</td>
       <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(deal.group_name || '-')}</td>
       <td>${escapeHtml(parsedAddress(deal))}</td>
       <td style="font-weight:600;color:${addrColor}">${escapeHtml(buildFullAddress(deal))}</td>
@@ -3041,7 +3107,7 @@ function toggleDetail(deal, tr) {
   const detailRow = document.createElement('tr');
   detailRow.classList.add('detail-row');
   const td = document.createElement('td');
-  td.colSpan = 9;
+  td.colSpan = 10;
 
   const candidates = deal.match_candidates || [];
 

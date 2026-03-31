@@ -313,71 +313,86 @@ async function loadDashMap() {
       limit: 1000,
     });
 
-    // Deduplicate and backfill
+    // Deduplicate and build address-level geocoding list
     const cleaned = cleanDeals(data);
-    // Build unique city list for geocoding
-    const cityDeals = {};
+    const dealsByAddr = {};
     for (const deal of cleaned) {
       const c = deal.match_candidates?.[0];
       const city = c?.property_address_city || deal.parsed_city || '';
       const state = c?.property_address_state || deal.parsed_state || '';
-      if (!city || !state) continue;
-      const key = `${city}, ${state}`.toUpperCase();
-      if (!cityDeals[key]) cityDeals[key] = [];
-      cityDeals[key].push(deal);
+      const zip = c?.property_address_zip || deal.parsed_zip || '';
+      const street = c?.property_address_full || deal.matched_address || '';
+      if (!street || !state) continue;
+      // Use full address as geocode key for accuracy
+      const addrKey = [street, city, state, zip].filter(Boolean).join(', ').toUpperCase();
+      if (!dealsByAddr[addrKey]) dealsByAddr[addrKey] = { deals: [], state };
+      dealsByAddr[addrKey].deals.push(deal);
     }
 
-    // Geocode cities (batch with small delay to respect Nominatim rate limits)
-    const cityKeys = Object.keys(cityDeals);
-    const geocoded = {};
-    const BATCH = 5;
+    // State center lat/lng for validation (continental US states)
+    const stateLatRanges = {
+      AL:[30,35], AK:[54,72], AZ:[31,37], AR:[33,37], CA:[32,42], CO:[37,41], CT:[41,42],
+      DE:[38,40], FL:[25,31], GA:[30,35], HI:[19,22], ID:[42,49], IL:[37,43], IN:[38,42],
+      IA:[40,44], KS:[37,40], KY:[37,39], LA:[29,33], ME:[43,48], MD:[38,40], MA:[41,43],
+      MI:[41,48], MN:[43,49], MS:[30,35], MO:[36,41], MT:[45,49], NE:[40,43], NV:[35,42],
+      NH:[43,45], NJ:[39,41], NM:[32,37], NY:[40,45], NC:[34,37], ND:[46,49], OH:[38,42],
+      OK:[34,37], OR:[42,46], PA:[40,42], RI:[41,42], SC:[32,35], SD:[43,46], TN:[35,37],
+      TX:[26,37], UT:[37,42], VT:[43,45], VA:[37,39], WA:[46,49], WV:[37,40], WI:[43,47], WY:[41,45],
+      DC:[38,39],
+    };
 
-    // Geocode using Photon (Komoot) — free, CORS-friendly
+    // Geocode by full address using Photon
+    const addrKeys = Object.keys(dealsByAddr);
+    const geocoded = {};
     let geocodeCount = 0;
-    for (const cityKey of cityKeys) {
-      if (geoCache[cityKey]) {
-        geocoded[cityKey] = geoCache[cityKey];
+
+    for (const addrKey of addrKeys) {
+      if (geoCache[addrKey]) {
+        geocoded[addrKey] = geoCache[addrKey];
         continue;
       }
       try {
-        const resp = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(cityKey + ', USA')}&limit=1`);
+        const resp = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(addrKey + ', USA')}&limit=1`);
         if (resp.ok) {
-          const data = await resp.json();
-          const feature = data.features?.[0];
+          const json = await resp.json();
+          const feature = json.features?.[0];
           if (feature?.geometry?.coordinates) {
             const [lng, lat] = feature.geometry.coordinates;
+            // Validate: check if result is in the expected state's lat range
+            const expectedState = dealsByAddr[addrKey].state?.toUpperCase();
+            const range = stateLatRanges[expectedState];
+            if (range && (lat < range[0] - 1 || lat > range[1] + 1)) {
+              console.warn(`Geocode rejected for ${addrKey}: lat ${lat} outside ${expectedState} range [${range}]`);
+              continue; // Skip bad geocode
+            }
             const loc = { lat, lng };
-            geoCache[cityKey] = loc;
-            geocoded[cityKey] = loc;
+            geoCache[addrKey] = loc;
+            geocoded[addrKey] = loc;
           }
         }
       } catch (e) {
-        console.warn('Geocode failed for', cityKey);
+        console.warn('Geocode failed for', addrKey);
       }
       geocodeCount++;
-      // Small delay to be respectful
       if (geocodeCount % 5 === 0) {
         await new Promise(r => setTimeout(r, 150));
       }
-      // Render markers progressively every 15 cities
-      if (geocodeCount % 15 === 0) {
-        renderMapMarkers(geocoded, cityDeals);
+      if (geocodeCount % 20 === 0) {
+        renderMapMarkers(geocoded, dealsByAddr);
         saveGeoCache();
       }
     }
 
-    // Persist geocache to localStorage
     saveGeoCache();
-    console.log(`Map: ${Object.keys(geocoded).length} cities geocoded, ${cityKeys.length} total cities`);
+    console.log(`Map: ${Object.keys(geocoded).length} addresses geocoded, ${addrKeys.length} total`);
 
-    // Final render
-    renderMapMarkers(geocoded, cityDeals);
+    renderMapMarkers(geocoded, dealsByAddr);
   } catch (err) {
     console.error('Failed to load map data:', err);
   }
 }
 
-function renderMapMarkers(geocoded, cityDeals) {
+function renderMapMarkers(geocoded, dealsByAddr) {
   if (!dashMap) return;
 
   // Clear existing markers
@@ -389,14 +404,14 @@ function renderMapMarkers(geocoded, cityDeals) {
   const isInUS = (lat, lng) => lat >= 18 && lat <= 72 && lng >= -180 && lng <= -65;
 
   const bounds = [];
-  for (const [cityKey, loc] of Object.entries(geocoded)) {
+  for (const [addrKey, loc] of Object.entries(geocoded)) {
     // Skip non-US locations
     if (!isInUS(loc.lat, loc.lng)) continue;
 
-    const deals = cityDeals[cityKey] || [];
+    const deals = dealsByAddr[addrKey]?.deals || dealsByAddr[addrKey] || [];
     for (const deal of deals) {
-      const jLat = loc.lat + (Math.random() - 0.5) * 0.02;
-      const jLng = loc.lng + (Math.random() - 0.5) * 0.02;
+      const jLat = loc.lat + (Math.random() - 0.5) * 0.005;
+      const jLng = loc.lng + (Math.random() - 0.5) * 0.005;
 
       const isMulti = deal.match_status === 'multi_match';
       const color = isMulti ? '#eab308' : '#22c55e';

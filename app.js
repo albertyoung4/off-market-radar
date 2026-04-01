@@ -2007,9 +2007,9 @@ async function loadTeamActivity() {
     }
 
     // Deduplicate and group posts by collector
-    allPosts = deduplicateDeals(allPosts);
+    const dedupedPosts = deduplicateDeals(allPosts);
     var byCollector = {};
-    for (var p of allPosts) {
+    for (var p of dedupedPosts) {
       var cn = p.collector_name || 'Unknown';
       if (!byCollector[cn]) byCollector[cn] = [];
       byCollector[cn].push(p);

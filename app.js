@@ -3972,6 +3972,16 @@ function estimateRehab(sqft, yearBuilt, arv, conditionClass) {
   return Math.round(perSqft * sqft);
 }
 
+// Tiered expense ratio based on cost basis (ask + rehab)
+// Lower-priced properties have higher fixed-cost burden relative to rent
+function getExpenseRatio(costBasis) {
+  if (costBasis < 100000) return 0.58;
+  if (costBasis < 150000) return 0.53;
+  if (costBasis < 250000) return 0.48;
+  if (costBasis < 400000) return 0.43;
+  return 0.38;
+}
+
 function fmtCurrency(val) {
   if (val == null || val === '' || isNaN(val)) return '—';
   return '$' + Number(val).toLocaleString('en-US', { maximumFractionDigits: 0 });
@@ -4047,13 +4057,16 @@ async function loadAnalysis() {
       const rehab = estimateRehab(sqft, yearBuilt, arv, conditionClass);
 
       // Cap rate calc: NOI / cost basis
-      // NOI = midpoint rent * 12 * (1 - 0.40)
+      // NOI = midpoint rent * 12 * (1 - expense ratio)
       // Cost basis = ask price + rehab
+      // Expense ratio is tiered by cost basis (lower price = higher ratio)
       let capRate = null;
+      let expenseRatio = null;
       if (askPrice && rentalLow != null && rentalHigh != null) {
         const midRent = (rentalLow + rentalHigh) / 2;
-        const annualNOI = midRent * 12 * 0.60;
         const costBasis = askPrice + (rehab || 0);
+        expenseRatio = getExpenseRatio(costBasis);
+        const annualNOI = midRent * 12 * (1 - expenseRatio);
         if (costBasis > 0) {
           capRate = (annualNOI / costBasis) * 100;
         }

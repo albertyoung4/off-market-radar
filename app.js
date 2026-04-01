@@ -118,6 +118,7 @@ function switchView(view) {
     vendors: 'Vendor CRM',
     scraper: 'Download Plugin',
     team: 'Team Activity',
+    analysis: 'Deal Analysis',
   };
   const headerEl = document.getElementById('headerTitle');
   if (view === 'dashboard') {
@@ -161,6 +162,9 @@ function switchView(view) {
   }
   if (view === 'team') {
     loadTeamActivity();
+  }
+  if (view === 'analysis') {
+    loadAnalysis();
   }
 }
 
@@ -3786,6 +3790,367 @@ function init() {
   loadDashMap();
   const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   document.getElementById('lastSync').innerHTML = `<span class="dot"></span><span>Synced ${now}</span>`;
+}
+
+// ===== ANALYSIS VIEW =====
+
+// City → MSA mapping (common markets)
+const CITY_TO_MSA = {
+  // Texas
+  'houston': 'Houston', 'katy': 'Houston', 'spring': 'Houston', 'cypress': 'Houston', 'pearland': 'Houston',
+  'sugar land': 'Houston', 'pasadena': 'Houston', 'baytown': 'Houston', 'league city': 'Houston',
+  'humble': 'Houston', 'richmond': 'Houston', 'rosenberg': 'Houston', 'missouri city': 'Houston',
+  'conroe': 'Houston', 'the woodlands': 'Houston', 'tomball': 'Houston', 'deer park': 'Houston',
+  'galveston': 'Houston', 'friendswood': 'Houston', 'dickinson': 'Houston', 'alvin': 'Houston',
+  'dallas': 'Dallas-Fort Worth', 'fort worth': 'Dallas-Fort Worth', 'arlington': 'Dallas-Fort Worth',
+  'plano': 'Dallas-Fort Worth', 'irving': 'Dallas-Fort Worth', 'garland': 'Dallas-Fort Worth',
+  'grand prairie': 'Dallas-Fort Worth', 'mckinney': 'Dallas-Fort Worth', 'frisco': 'Dallas-Fort Worth',
+  'mesquite': 'Dallas-Fort Worth', 'denton': 'Dallas-Fort Worth', 'carrollton': 'Dallas-Fort Worth',
+  'lewisville': 'Dallas-Fort Worth', 'allen': 'Dallas-Fort Worth', 'flower mound': 'Dallas-Fort Worth',
+  'mansfield': 'Dallas-Fort Worth', 'rowlett': 'Dallas-Fort Worth', 'desoto': 'Dallas-Fort Worth',
+  'san antonio': 'San Antonio', 'new braunfels': 'San Antonio', 'san marcos': 'San Antonio',
+  'austin': 'Austin', 'round rock': 'Austin', 'cedar park': 'Austin', 'pflugerville': 'Austin',
+  'georgetown': 'Austin', 'kyle': 'Austin', 'buda': 'Austin', 'leander': 'Austin',
+  'el paso': 'El Paso',
+  // Tennessee
+  'nashville': 'Nashville', 'murfreesboro': 'Nashville', 'franklin': 'Nashville', 'hendersonville': 'Nashville',
+  'gallatin': 'Nashville', 'lebanon': 'Nashville', 'mt juliet': 'Nashville', 'smyrna': 'Nashville',
+  'antioch': 'Nashville', 'hermitage': 'Nashville', 'madison': 'Nashville', 'goodlettsville': 'Nashville',
+  'memphis': 'Memphis', 'germantown': 'Memphis', 'bartlett': 'Memphis', 'collierville': 'Memphis',
+  'cordova': 'Memphis', 'lakeland': 'Memphis', 'millington': 'Memphis', 'southaven': 'Memphis',
+  'olive branch': 'Memphis',
+  'knoxville': 'Knoxville', 'maryville': 'Knoxville',
+  'chattanooga': 'Chattanooga',
+  'clarksville': 'Clarksville',
+  // Georgia
+  'atlanta': 'Atlanta', 'marietta': 'Atlanta', 'decatur': 'Atlanta', 'roswell': 'Atlanta',
+  'alpharetta': 'Atlanta', 'kennesaw': 'Atlanta', 'lawrenceville': 'Atlanta', 'duluth': 'Atlanta',
+  'lithonia': 'Atlanta', 'stone mountain': 'Atlanta', 'snellville': 'Atlanta', 'tucker': 'Atlanta',
+  'conyers': 'Atlanta', 'covington': 'Atlanta', 'stockbridge': 'Atlanta', 'mcdonough': 'Atlanta',
+  'newnan': 'Atlanta', 'peachtree city': 'Atlanta', 'woodstock': 'Atlanta', 'canton': 'Atlanta',
+  // Florida
+  'jacksonville': 'Jacksonville',
+  'miami': 'Miami', 'hialeah': 'Miami', 'fort lauderdale': 'Miami', 'hollywood': 'Miami',
+  'pembroke pines': 'Miami', 'coral springs': 'Miami', 'pompano beach': 'Miami', 'doral': 'Miami',
+  'homestead': 'Miami', 'miami gardens': 'Miami', 'miami beach': 'Miami',
+  'tampa': 'Tampa', 'st petersburg': 'Tampa', 'clearwater': 'Tampa', 'brandon': 'Tampa',
+  'lakeland': 'Tampa', 'plant city': 'Tampa', 'riverview': 'Tampa', 'wesley chapel': 'Tampa',
+  'orlando': 'Orlando', 'kissimmee': 'Orlando', 'sanford': 'Orlando', 'apopka': 'Orlando',
+  'winter park': 'Orlando', 'deltona': 'Orlando', 'daytona beach': 'Orlando',
+  // North Carolina
+  'charlotte': 'Charlotte', 'concord': 'Charlotte', 'gastonia': 'Charlotte', 'huntersville': 'Charlotte',
+  'mooresville': 'Charlotte', 'matthews': 'Charlotte', 'mint hill': 'Charlotte',
+  'raleigh': 'Raleigh-Durham', 'durham': 'Raleigh-Durham', 'cary': 'Raleigh-Durham',
+  'chapel hill': 'Raleigh-Durham', 'apex': 'Raleigh-Durham', 'wake forest': 'Raleigh-Durham',
+  'greensboro': 'Greensboro', 'winston-salem': 'Greensboro', 'high point': 'Greensboro',
+  // Alabama
+  'birmingham': 'Birmingham', 'hoover': 'Birmingham', 'vestavia hills': 'Birmingham',
+  'huntsville': 'Huntsville', 'montgomery': 'Montgomery', 'mobile': 'Mobile',
+  // South Carolina
+  'columbia': 'Columbia', 'charleston': 'Charleston', 'greenville': 'Greenville',
+  // Mississippi
+  'jackson': 'Jackson',
+  // Ohio
+  'columbus': 'Columbus', 'cleveland': 'Cleveland', 'cincinnati': 'Cincinnati', 'dayton': 'Dayton',
+  'akron': 'Akron', 'toledo': 'Toledo',
+  // Indiana
+  'indianapolis': 'Indianapolis', 'fort wayne': 'Fort Wayne',
+  // Michigan
+  'detroit': 'Detroit', 'grand rapids': 'Grand Rapids', 'warren': 'Detroit', 'sterling heights': 'Detroit',
+  'lansing': 'Lansing', 'ann arbor': 'Ann Arbor', 'flint': 'Flint',
+  // Illinois
+  'chicago': 'Chicago', 'aurora': 'Chicago', 'joliet': 'Chicago', 'naperville': 'Chicago',
+  'elgin': 'Chicago', 'waukegan': 'Chicago', 'cicero': 'Chicago',
+  // Missouri
+  'st louis': 'St. Louis', 'saint louis': 'St. Louis', 'kansas city': 'Kansas City',
+  // Oklahoma
+  'oklahoma city': 'Oklahoma City', 'tulsa': 'Tulsa',
+  // Arizona
+  'phoenix': 'Phoenix', 'mesa': 'Phoenix', 'chandler': 'Phoenix', 'scottsdale': 'Phoenix',
+  'gilbert': 'Phoenix', 'glendale': 'Phoenix', 'tempe': 'Phoenix', 'peoria': 'Phoenix',
+  'tucson': 'Tucson',
+  // Nevada
+  'las vegas': 'Las Vegas', 'henderson': 'Las Vegas', 'north las vegas': 'Las Vegas',
+  'reno': 'Reno',
+  // California
+  'los angeles': 'Los Angeles', 'san diego': 'San Diego', 'san francisco': 'San Francisco',
+  'san jose': 'San Jose', 'sacramento': 'Sacramento', 'fresno': 'Fresno',
+  'riverside': 'Riverside', 'bakersfield': 'Bakersfield', 'stockton': 'Stockton',
+  // Pennsylvania
+  'philadelphia': 'Philadelphia', 'pittsburgh': 'Pittsburgh',
+  // Maryland
+  'baltimore': 'Baltimore',
+  // Virginia
+  'virginia beach': 'Virginia Beach', 'norfolk': 'Virginia Beach', 'richmond': 'Richmond',
+  // Louisiana
+  'new orleans': 'New Orleans', 'baton rouge': 'Baton Rouge',
+  // Arkansas
+  'little rock': 'Little Rock',
+  // Kentucky
+  'louisville': 'Louisville', 'lexington': 'Lexington',
+  // Wisconsin
+  'milwaukee': 'Milwaukee',
+  // Minnesota
+  'minneapolis': 'Minneapolis', 'st paul': 'Minneapolis', 'saint paul': 'Minneapolis',
+  // Colorado
+  'denver': 'Denver', 'colorado springs': 'Colorado Springs', 'aurora': 'Denver',
+  // Oregon / Washington
+  'portland': 'Portland', 'seattle': 'Seattle', 'tacoma': 'Seattle',
+};
+
+function assignMSA(city, state) {
+  if (!city) return state || 'Unknown';
+  const key = city.toLowerCase().trim();
+  if (CITY_TO_MSA[key]) return CITY_TO_MSA[key];
+  // Fallback: use city name + state
+  return `${city}, ${state || ''}`.trim().replace(/,\s*$/, '');
+}
+
+function fmtCurrency(val) {
+  if (val == null || val === '' || isNaN(val)) return '—';
+  return '$' + Number(val).toLocaleString('en-US', { maximumFractionDigits: 0 });
+}
+
+function fmtPercent(val) {
+  if (val == null || val === '' || isNaN(val)) return '—';
+  return Number(val).toFixed(2) + '%';
+}
+
+let analysisData = [];
+let analysisSortCol = null;
+let analysisSortAsc = true;
+let analysisMarketFilter = 'all';
+
+async function loadAnalysis() {
+  const container = document.getElementById('analysisContent');
+  container.innerHTML = '<div style="text-align:center;padding:60px;color:var(--text-muted);">Loading analysis data...</div>';
+
+  try {
+    // 1. Fetch exact-match deals
+    const { data: deals } = await supabaseGetAll('fb_deal_posts', {
+      select: 'id,matched_address,parsed_asking_price,parsed_city,parsed_state,match_candidates,match_confidence,match_status',
+      filters: [
+        { col: 'match_status', val: 'in.(matched,confirmed)' },
+        { col: 'match_confidence', val: 'eq.exact' },
+      ],
+    });
+
+    // Extract attom_ids
+    const attomIdMap = new Map(); // attom_id → deal
+    const enrichedDeals = [];
+    for (const deal of deals) {
+      const candidates = deal.match_candidates;
+      const attomId = Array.isArray(candidates) && candidates[0]?.attom_id
+        ? String(candidates[0].attom_id)
+        : null;
+      if (attomId) {
+        const enriched = backfillPropertyData(deal);
+        enriched._attom_id = attomId;
+        enrichedDeals.push(enriched);
+        attomIdMap.set(attomId, enriched);
+      }
+    }
+
+    // 2. Fetch HC data from Supabase
+    const { data: hcData } = await supabaseGetAll('hc_property_data', {
+      select: 'attom_id,hc_value_estimate,hc_rental_avm_lower,hc_rental_avm_upper,city,state,county',
+    });
+
+    const hcMap = new Map();
+    for (const row of hcData) {
+      hcMap.set(String(row.attom_id), row);
+    }
+
+    // 3. Merge
+    analysisData = [];
+    for (const deal of enrichedDeals) {
+      const hc = hcMap.get(deal._attom_id) || {};
+      const city = hc.city || deal.parsed_city || '';
+      const state = hc.state || deal.parsed_state || '';
+      const askPrice = Number(deal.parsed_asking_price) || null;
+      const arv = hc.hc_value_estimate || null;
+      const rentalLow = hc.hc_rental_avm_lower || null;
+      const rentalHigh = hc.hc_rental_avm_upper || null;
+      const rehab = null; // blank for now
+      const market = assignMSA(city, state);
+
+      // Cap rate calc: NOI / cost basis
+      // NOI = midpoint rent * 12 * (1 - 0.40)
+      // Cost basis = ask price + rehab
+      let capRate = null;
+      if (askPrice && rentalLow != null && rentalHigh != null) {
+        const midRent = (rentalLow + rentalHigh) / 2;
+        const annualNOI = midRent * 12 * 0.60;
+        const costBasis = askPrice + (rehab || 0);
+        if (costBasis > 0) {
+          capRate = (annualNOI / costBasis) * 100;
+        }
+      }
+
+      analysisData.push({
+        address: deal.matched_address || '',
+        market,
+        askPrice,
+        arv,
+        rentalLow,
+        rentalHigh,
+        rehab,
+        capRate,
+        _city: city,
+        _state: state,
+      });
+    }
+
+    // Deduplicate by address
+    const addrSeen = new Map();
+    analysisData = analysisData.filter(row => {
+      const key = row.address.toUpperCase().trim();
+      if (!key || addrSeen.has(key)) return false;
+      addrSeen.set(key, true);
+      return true;
+    });
+
+    renderAnalysisView();
+  } catch (err) {
+    container.innerHTML = `<div style="text-align:center;padding:60px;color:var(--red);">Error loading analysis: ${err.message}</div>`;
+  }
+}
+
+function renderAnalysisView() {
+  const container = document.getElementById('analysisContent');
+
+  // Get unique markets for filter
+  const markets = [...new Set(analysisData.map(r => r.market))].sort();
+
+  // Filter
+  let filtered = analysisData;
+  if (analysisMarketFilter !== 'all') {
+    filtered = filtered.filter(r => r.market === analysisMarketFilter);
+  }
+
+  // Sort
+  if (analysisSortCol) {
+    filtered = [...filtered].sort((a, b) => {
+      let va = a[analysisSortCol];
+      let vb = b[analysisSortCol];
+      // Nulls to bottom
+      if (va == null && vb == null) return 0;
+      if (va == null) return 1;
+      if (vb == null) return -1;
+      if (typeof va === 'string') {
+        va = va.toLowerCase();
+        vb = (vb || '').toLowerCase();
+        return analysisSortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+      }
+      return analysisSortAsc ? va - vb : vb - va;
+    });
+  }
+
+  const sortIcon = (col) => {
+    if (analysisSortCol !== col) return '<span style="opacity:0.3;margin-left:4px;">&#8597;</span>';
+    return analysisSortAsc
+      ? '<span style="margin-left:4px;">&#9650;</span>'
+      : '<span style="margin-left:4px;">&#9660;</span>';
+  };
+
+  container.innerHTML = `
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;flex-wrap:wrap;">
+      <div style="font-size:18px;font-weight:700;">Deal Analysis</div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <label style="color:var(--text-muted);font-size:13px;">Market:</label>
+        <select id="analysisMarketFilter" style="
+          background:var(--surface);border:1px solid var(--border);color:var(--text);
+          padding:6px 12px;border-radius:var(--radius);font-size:13px;cursor:pointer;
+        ">
+          <option value="all">All Markets (${analysisData.length})</option>
+          ${markets.map(m => {
+            const count = analysisData.filter(r => r.market === m).length;
+            return `<option value="${m}" ${analysisMarketFilter === m ? 'selected' : ''}>${m} (${count})</option>`;
+          }).join('')}
+        </select>
+      </div>
+      <div style="color:var(--text-muted);font-size:13px;margin-left:auto;">
+        Showing ${filtered.length} properties
+      </div>
+    </div>
+
+    <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr style="border-bottom:2px solid var(--border);text-align:left;">
+            <th class="analysis-th" data-col="address" style="padding:10px 12px;cursor:pointer;white-space:nowrap;user-select:none;">
+              Address ${sortIcon('address')}
+            </th>
+            <th class="analysis-th" data-col="market" style="padding:10px 12px;cursor:pointer;white-space:nowrap;user-select:none;">
+              Market ${sortIcon('market')}
+            </th>
+            <th class="analysis-th" data-col="askPrice" style="padding:10px 12px;cursor:pointer;white-space:nowrap;user-select:none;text-align:right;">
+              Ask Price ${sortIcon('askPrice')}
+            </th>
+            <th class="analysis-th" data-col="arv" style="padding:10px 12px;cursor:pointer;white-space:nowrap;user-select:none;text-align:right;">
+              HC ARV ${sortIcon('arv')}
+            </th>
+            <th class="analysis-th" data-col="rentalLow" style="padding:10px 12px;cursor:pointer;white-space:nowrap;user-select:none;text-align:right;">
+              Rental Low ${sortIcon('rentalLow')}
+            </th>
+            <th class="analysis-th" data-col="rentalHigh" style="padding:10px 12px;cursor:pointer;white-space:nowrap;user-select:none;text-align:right;">
+              Rental High ${sortIcon('rentalHigh')}
+            </th>
+            <th class="analysis-th" data-col="rehab" style="padding:10px 12px;cursor:pointer;white-space:nowrap;user-select:none;text-align:right;">
+              Rehab ${sortIcon('rehab')}
+            </th>
+            <th class="analysis-th" data-col="capRate" style="padding:10px 12px;cursor:pointer;white-space:nowrap;user-select:none;text-align:right;">
+              Est. Cap Rate ${sortIcon('capRate')}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          ${filtered.length === 0 ? `
+            <tr><td colspan="8" style="text-align:center;padding:40px;color:var(--text-muted);">
+              No data available. Run sync-hc-data.js to populate House Canary estimates.
+            </td></tr>
+          ` : filtered.map((row, i) => `
+            <tr style="border-bottom:1px solid var(--border);${i % 2 === 0 ? '' : 'background:var(--surface-alt);'}">
+              <td style="padding:8px 12px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${row.address}">${row.address}</td>
+              <td style="padding:8px 12px;white-space:nowrap;">
+                <span style="display:inline-block;padding:2px 8px;border-radius:20px;font-size:12px;background:var(--blue-bg);color:var(--accent-hover);">
+                  ${row.market}
+                </span>
+              </td>
+              <td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums;">${fmtCurrency(row.askPrice)}</td>
+              <td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums;">${fmtCurrency(row.arv)}</td>
+              <td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums;">${fmtCurrency(row.rentalLow)}</td>
+              <td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums;">${fmtCurrency(row.rentalHigh)}</td>
+              <td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums;">${fmtCurrency(row.rehab)}</td>
+              <td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums;${row.capRate != null && row.capRate >= 8 ? 'color:var(--green);font-weight:600;' : row.capRate != null && row.capRate < 5 ? 'color:var(--red);' : ''}">
+                ${fmtPercent(row.capRate)}
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  // Bind filter
+  document.getElementById('analysisMarketFilter').addEventListener('change', (e) => {
+    analysisMarketFilter = e.target.value;
+    renderAnalysisView();
+  });
+
+  // Bind sort headers
+  container.querySelectorAll('.analysis-th').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.col;
+      if (analysisSortCol === col) {
+        analysisSortAsc = !analysisSortAsc;
+      } else {
+        analysisSortCol = col;
+        analysisSortAsc = true;
+      }
+      renderAnalysisView();
+    });
+  });
 }
 
 init();

@@ -886,6 +886,7 @@
     @media (max-width: 640px) {
       .kpi-grid { grid-template-columns: repeat(2, 1fr); }
     }
+    .analysis-th:hover { background: var(--surface-hover); }
   </style>
 </head>
 <body>
@@ -939,6 +940,12 @@
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
           </span>
           <span class="nav-label">Markets</span>
+        </a>
+        <a class="nav-item" data-view="analysis" onclick="switchView('analysis')">
+          <span class="nav-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>
+          </span>
+          <span class="nav-label">Analysis</span>
         </a>
         <a class="nav-item" data-view="wholesalers" onclick="switchView('wholesalers')">
           <span class="nav-icon">
@@ -1118,6 +1125,11 @@
         <!-- ===== MARKETS VIEW ===== -->
         <div class="view" id="view-markets">
           <div id="marketsContent"></div>
+        </div>
+
+        <!-- ===== ANALYSIS VIEW ===== -->
+        <div class="view" id="view-analysis">
+          <div id="analysisContent"></div>
         </div>
 
         <!-- ===== WHOLESALERS VIEW ===== -->

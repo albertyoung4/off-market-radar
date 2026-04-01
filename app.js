@@ -3906,6 +3906,72 @@ function assignMSA(city, state) {
   return `${city}, ${state || ''}`.trim().replace(/,\s*$/, '');
 }
 
+// ===== REHAB ESTIMATE MATRIX =====
+// 3-factor model: Age x ARV Tier x Condition Class → $/sqft
+// Sources: J Scott rehab estimating, BiggerPockets surveys, NAHB cost data (2025-2026)
+//
+// Age brackets: pre-1960, 1960-1979, 1980-1999, 2000+
+// ARV tiers: <$150K, $150-300K, $300-500K, $500K+
+// HC condition class: 1=Excellent, 2=Good, 3=Average, 4=Fair, 5=Poor
+//
+// Matrix values are $/sqft midpoints. Rehab = $/sqft × living area.
+
+const REHAB_MATRIX = {
+  // [arvTier][ageBracket][conditionClass] = $/sqft
+  0: { // ARV < $150K (builder grade)
+    0: { 1: 15, 2: 32, 3: 55, 4: 93, 5: 120 },  // pre-1960
+    1: { 1: 11, 2: 25, 3: 45, 4: 74, 5: 100 },  // 1960-1979
+    2: { 1: 9,  2: 21, 3: 39, 4: 64, 5: 85 },   // 1980-1999
+    3: { 1: 8,  2: 19, 3: 35, 4: 58, 5: 75 },   // 2000+
+  },
+  1: { // ARV $150K-$300K (mid-grade)
+    0: { 1: 22, 2: 40, 3: 67, 4: 105, 5: 140 },
+    1: { 1: 17, 2: 34, 3: 56, 4: 86,  5: 115 },
+    2: { 1: 15, 2: 30, 3: 48, 4: 75,  5: 100 },
+    3: { 1: 13, 2: 26, 3: 44, 4: 69,  5: 90 },
+  },
+  2: { // ARV $300K-$500K (upper-mid)
+    0: { 1: 30, 2: 51, 3: 82, 4: 123, 5: 165 },
+    1: { 1: 24, 2: 43, 3: 69, 4: 103, 5: 138 },
+    2: { 1: 22, 2: 38, 3: 60, 4: 92,  5: 120 },
+    3: { 1: 19, 2: 34, 3: 57, 4: 84,  5: 110 },
+  },
+  3: { // ARV $500K+ (high-end)
+    0: { 1: 43, 2: 67, 3: 103, 4: 155, 5: 200 },
+    1: { 1: 34, 2: 57, 3: 88,  4: 130, 5: 170 },
+    2: { 1: 30, 2: 50, 3: 78,  4: 118, 5: 150 },
+    3: { 1: 26, 2: 45, 3: 71,  4: 105, 5: 135 },
+  },
+};
+
+function getArvTier(arv) {
+  if (arv == null) return 1; // default mid-grade
+  if (arv < 150000) return 0;
+  if (arv < 300000) return 1;
+  if (arv < 500000) return 2;
+  return 3;
+}
+
+function getAgeBracket(yearBuilt) {
+  if (yearBuilt == null) return 1; // default 1960-1979 (conservative)
+  if (yearBuilt < 1960) return 0;
+  if (yearBuilt < 1980) return 1;
+  if (yearBuilt < 2000) return 2;
+  return 3;
+}
+
+function estimateRehab(sqft, yearBuilt, arv, conditionClass) {
+  if (!sqft || sqft <= 0) return null;
+
+  const arvTier = getArvTier(arv);
+  const ageBracket = getAgeBracket(yearBuilt);
+  // HC condition_class: 1-5. Default to 3 (average) if unknown.
+  const condition = (conditionClass >= 1 && conditionClass <= 5) ? conditionClass : 3;
+
+  const perSqft = REHAB_MATRIX[arvTier][ageBracket][condition];
+  return Math.round(perSqft * sqft);
+}
+
 function fmtCurrency(val) {
   if (val == null || val === '' || isNaN(val)) return '—';
   return '$' + Number(val).toLocaleString('en-US', { maximumFractionDigits: 0 });
@@ -3953,7 +4019,7 @@ async function loadAnalysis() {
 
     // 2. Fetch HC data from Supabase
     const { data: hcData } = await supabaseGetAll('hc_property_data', {
-      select: 'attom_id,hc_value_estimate,hc_rental_avm_lower,hc_rental_avm_upper,city,state,county',
+      select: 'attom_id,hc_value_estimate,hc_rental_avm_lower,hc_rental_avm_upper,hc_condition_class,living_area,year_built,city,state,county',
     });
 
     const hcMap = new Map();
@@ -3965,14 +4031,20 @@ async function loadAnalysis() {
     analysisData = [];
     for (const deal of enrichedDeals) {
       const hc = hcMap.get(deal._attom_id) || {};
+      const c = deal.match_candidates?.[0] || {};
       const city = hc.city || deal.parsed_city || '';
       const state = hc.state || deal.parsed_state || '';
       const askPrice = Number(deal.parsed_asking_price) || null;
       const arv = hc.hc_value_estimate || null;
       const rentalLow = hc.hc_rental_avm_lower || null;
       const rentalHigh = hc.hc_rental_avm_upper || null;
-      const rehab = null; // blank for now
       const market = assignMSA(city, state);
+
+      // Rehab estimate from 3-factor matrix: age × ARV tier × condition
+      const sqft = hc.living_area || Number(c.area_building) || Number(c.living_area_size) || Number(deal.parsed_sqft) || null;
+      const yearBuilt = hc.year_built || Number(c.year_built) || null;
+      const conditionClass = hc.hc_condition_class || null;
+      const rehab = estimateRehab(sqft, yearBuilt, arv, conditionClass);
 
       // Cap rate calc: NOI / cost basis
       // NOI = midpoint rent * 12 * (1 - 0.40)
@@ -3996,6 +4068,9 @@ async function loadAnalysis() {
         rentalHigh,
         rehab,
         capRate,
+        _sqft: sqft,
+        _yearBuilt: yearBuilt,
+        _conditionClass: conditionClass,
         _city: city,
         _state: state,
       });

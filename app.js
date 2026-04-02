@@ -3,7 +3,7 @@ const SUPABASE_URL = localStorage.getItem('omr_supabase_url') || 'https://xpvvge
 const SUPABASE_ANON_KEY = localStorage.getItem('omr_supabase_key') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhwdnZnZWN3YWpxbXZldXVobm1jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0MzgzMTksImV4cCI6MjA5MDAxNDMxOX0.l6KhvXHp3WdltKYtiSfrAHAgRwRxtfh6lZ0B73i0myc';
 const SUPABASE_SERVICE_KEY = localStorage.getItem('omr_supabase_service_key') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhwdnZnZWN3YWpxbXZldXVobm1jIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDQzODMxOSwiZXhwIjoyMDkwMDE0MzE5fQ.l-xhfzSv45BbZhnVg3VjW3XpG8kIiEm3nnW0tMQrMRw';
 const GMAPS_KEY = localStorage.getItem('omr_gmaps_key') || '';
-const MV_API_URL = localStorage.getItem('omr_mv_url') || 'http://localhost:8080';
+const MV_API_URL = localStorage.getItem('omr_mv_url') || (window.location.origin.includes('localhost') ? window.location.origin : 'http://localhost:8080');
 const MV_API_KEY = localStorage.getItem('omr_mv_api_key') || 'fbdeals-2026-xk9m4v7p';
 
 const PAGE_SIZE = 50;

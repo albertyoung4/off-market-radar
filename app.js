@@ -4,7 +4,7 @@ const SUPABASE_ANON_KEY = localStorage.getItem('omr_supabase_key') || 'eyJhbGciO
 const SUPABASE_SERVICE_KEY = localStorage.getItem('omr_supabase_service_key') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhwdnZnZWN3YWpxbXZldXVobm1jIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDQzODMxOSwiZXhwIjoyMDkwMDE0MzE5fQ.l-xhfzSv45BbZhnVg3VjW3XpG8kIiEm3nnW0tMQrMRw';
 const GMAPS_KEY = localStorage.getItem('omr_gmaps_key') || '';
 const MV_API_URL = localStorage.getItem('omr_mv_url') || 'http://localhost:8080';
-const MV_API_KEY = localStorage.getItem('omr_mv_api_key') || '';
+const MV_API_KEY = localStorage.getItem('omr_mv_api_key') || 'fbdeals-2026-xk9m4v7p';
 
 const PAGE_SIZE = 50;
 let currentPage = 0;

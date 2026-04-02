@@ -2650,6 +2650,22 @@ async function loadQualityControl() {
       // Data attributes for filtering
       const filterAttrs = 'data-has-attom="' + (hasAttom ? 'yes' : 'no') + '" data-confidence="' + (d.match_confidence || '') + '" data-status="' + d.match_status + '"';
 
+      // Parsed columns
+      const parsedBeds = d.parsed_beds || '';
+      const parsedBaths = d.parsed_baths || '';
+      const parsedSqft = d.parsed_sqft || '';
+      const parsedYearBuilt = d.parsed_year_built || '';
+      const parsedLotSqft = d.parsed_lot_sqft || '';
+      const parsedLot = parsedLotSqft ? (Math.round(parsedLotSqft / 43560 * 100) / 100) + 'ac' : '';
+
+      // DB match columns
+      const dbBeds = c.bedrooms_count || '';
+      const dbBaths = c.bath_count || '';
+      const dbSqft = c.area_building || c.living_area_size || '';
+      const dbYearBuilt = c.year_built || '';
+      const dbLotSf = c.area_lot_sf || '';
+      const dbLot = dbLotSf ? (Math.round(dbLotSf / 43560 * 100) / 100) + 'ac' : '';
+
       // Store parsed attributes as data attributes for match funnel
       const funnelData = escapeHtml(JSON.stringify({
         street_number: parsedStreetNum,
@@ -2665,14 +2681,6 @@ async function loadQualityControl() {
       html += '<tr class="qc-row" ' + filterAttrs + ' data-funnel=\'' + funnelData + '\' style="border-bottom:1px solid var(--border);cursor:pointer;" title="Click to view match funnel">';
       html += '<td style="padding:8px 6px;"><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;background:' + confColor + '22;color:' + confColor + ';">' + escapeHtml(statusLabel) + '</span></td>';
 
-      // Parsed columns
-      const parsedBeds = d.parsed_beds || '';
-      const parsedBaths = d.parsed_baths || '';
-      const parsedSqft = d.parsed_sqft || '';
-      const parsedYearBuilt = d.parsed_year_built || '';
-      const parsedLotSqft = d.parsed_lot_sqft || '';
-      const parsedLot = parsedLotSqft ? (Math.round(parsedLotSqft / 43560 * 100) / 100) + 'ac' : '';
-
       html += '<td style="padding:8px 6px;border-left:2px solid var(--border);font-weight:500;">' + escapeHtml(parsedStreetNum) + '</td>';
       html += '<td style="padding:8px 6px;">' + escapeHtml(parsedStreetName) + '</td>';
       html += '<td style="padding:8px 6px;">' + escapeHtml(d.parsed_city || '') + '</td>';
@@ -2683,14 +2691,6 @@ async function loadQualityControl() {
       html += '<td style="padding:8px 6px;text-align:center;">' + (parsedSqft ? escapeHtml(Number(parsedSqft).toLocaleString()) : '—') + '</td>';
       html += '<td style="padding:8px 6px;text-align:center;">' + escapeHtml(String(parsedYearBuilt || '—')) + '</td>';
       html += '<td style="padding:8px 6px;text-align:center;">' + escapeHtml(parsedLot || '—') + '</td>';
-
-      // DB match columns
-      const dbBeds = c.bedrooms_count || '';
-      const dbBaths = c.bath_count || '';
-      const dbSqft = c.area_building || c.living_area_size || '';
-      const dbYearBuilt = c.year_built || '';
-      const dbLotSf = c.area_lot_sf || '';
-      const dbLot = dbLotSf ? (Math.round(dbLotSf / 43560 * 100) / 100) + 'ac' : '';
 
       html += '<td style="padding:8px 6px;border-left:2px solid var(--border);font-weight:500;color:var(--green);">' + escapeHtml(dbStreetNum) + '</td>';
       html += '<td style="padding:8px 6px;color:var(--green);">' + escapeHtml(dbStreetName) + '</td>';

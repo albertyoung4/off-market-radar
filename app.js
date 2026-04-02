@@ -1,7 +1,10 @@
 // ===== CONFIG (loaded from localStorage, with defaults) =====
 const SUPABASE_URL = localStorage.getItem('omr_supabase_url') || 'https://xpvvgecwajqmveuuhnmc.supabase.co';
 const SUPABASE_ANON_KEY = localStorage.getItem('omr_supabase_key') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhwdnZnZWN3YWpxbXZldXVobm1jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0MzgzMTksImV4cCI6MjA5MDAxNDMxOX0.l6KhvXHp3WdltKYtiSfrAHAgRwRxtfh6lZ0B73i0myc';
+const SUPABASE_SERVICE_KEY = localStorage.getItem('omr_supabase_service_key') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhwdnZnZWN3YWpxbXZldXVobm1jIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDQzODMxOSwiZXhwIjoyMDkwMDE0MzE5fQ.l-xhfzSv45BbZhnVg3VjW3XpG8kIiEm3nnW0tMQrMRw';
 const GMAPS_KEY = localStorage.getItem('omr_gmaps_key') || '';
+const MV_API_URL = localStorage.getItem('omr_mv_url') || 'http://localhost:8080';
+const MV_API_KEY = localStorage.getItem('omr_mv_api_key') || '';
 
 const PAGE_SIZE = 50;
 let currentPage = 0;
@@ -234,19 +237,25 @@ async function supabaseGetAll(table, { select = '*', filters = [] } = {}) {
 async function supabasePatch(table, id, updates) {
   const url = new URL(`${SUPABASE_URL}/rest/v1/${table}`);
   url.searchParams.set('id', `eq.${id}`);
+  // Use service key to bypass RLS for writes
+  const key = SUPABASE_SERVICE_KEY || SUPABASE_ANON_KEY;
   const resp = await fetch(url, {
     method: 'PATCH',
     headers: {
-      'apikey': SUPABASE_ANON_KEY,
-      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      'apikey': key,
+      'Authorization': `Bearer ${key}`,
       'Content-Type': 'application/json',
-      'Prefer': 'return=minimal',
+      'Prefer': 'return=representation',
     },
     body: JSON.stringify(updates),
   });
   if (!resp.ok) {
     const err = await resp.text();
     throw new Error(`Supabase PATCH error: ${resp.status} ${err}`);
+  }
+  const data = await resp.json();
+  if (!data || data.length === 0) {
+    throw new Error('Supabase PATCH: no rows updated');
   }
 }
 
@@ -2641,7 +2650,19 @@ async function loadQualityControl() {
       // Data attributes for filtering
       const filterAttrs = 'data-has-attom="' + (hasAttom ? 'yes' : 'no') + '" data-confidence="' + (d.match_confidence || '') + '" data-status="' + d.match_status + '"';
 
-      html += '<tr class="qc-row" ' + filterAttrs + ' style="border-bottom:1px solid var(--border);">';
+      // Store parsed attributes as data attributes for match funnel
+      const funnelData = escapeHtml(JSON.stringify({
+        street_number: parsedStreetNum,
+        state: d.parsed_state || dbState,
+        zip: d.parsed_zip || dbZip,
+        sqft: parsedSqft || dbSqft,
+        beds: parsedBeds || dbBeds,
+        baths: parsedBaths || dbBaths,
+        year_built: parsedYearBuilt || dbYearBuilt,
+        address: d.parsed_full_address || '',
+      }));
+
+      html += '<tr class="qc-row" ' + filterAttrs + ' data-funnel=\'' + funnelData + '\' style="border-bottom:1px solid var(--border);cursor:pointer;" title="Click to view match funnel">';
       html += '<td style="padding:8px 6px;"><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;background:' + confColor + '22;color:' + confColor + ';">' + escapeHtml(statusLabel) + '</span></td>';
 
       // Parsed columns
@@ -2718,9 +2739,157 @@ async function loadQualityControl() {
       row.style.display = row.getAttribute('data-confidence') === 'exact' ? '' : 'none';
     });
 
+    // Match funnel click handler
+    container.querySelectorAll('.qc-row').forEach(function(row) {
+      row.addEventListener('click', function() {
+        try {
+          const data = JSON.parse(row.getAttribute('data-funnel'));
+          openMatchFunnel(data);
+        } catch (e) {
+          console.error('Failed to parse funnel data:', e);
+        }
+      });
+    });
+
   } catch (err) {
     console.error('Failed to load QC:', err);
     container.innerHTML = '<div style="text-align:center;padding:60px;color:var(--text-muted);">Error loading quality control: ' + escapeHtml(err.message) + '</div>';
+  }
+}
+
+/**
+ * Opens a modal showing how many properties match at each specificity tier.
+ * Queries the marketplace-viewer backend on click.
+ */
+async function openMatchFunnel(parsed) {
+  // Remove any existing funnel overlay
+  const existing = document.getElementById('matchFunnelOverlay');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'matchFunnelOverlay';
+  overlay.className = 'compare-overlay';
+  document.body.appendChild(overlay);
+
+  const addrLabel = parsed.address || [parsed.street_number, parsed.state, parsed.zip].filter(Boolean).join(' ');
+
+  overlay.innerHTML = `
+    <div class="compare-panel" style="max-width:640px;width:90vw;">
+      <button class="compare-close" id="funnelClose">&times;</button>
+      <h3 style="margin:0 0 6px 0;font-size:16px;color:var(--text);">Match Funnel</h3>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:20px;">${escapeHtml(addrLabel)}</div>
+      <div id="funnelBody" style="text-align:center;padding:40px 0;color:var(--text-muted);">
+        <div style="font-size:13px;">Querying property registry...</div>
+      </div>
+    </div>
+  `;
+
+  // Show overlay
+  requestAnimationFrame(() => overlay.classList.add('open'));
+
+  // Close handlers
+  document.getElementById('funnelClose').addEventListener('click', () => {
+    overlay.classList.remove('open');
+    setTimeout(() => overlay.remove(), 250);
+  });
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) {
+      overlay.classList.remove('open');
+      setTimeout(() => overlay.remove(), 250);
+    }
+  });
+
+  const body = document.getElementById('funnelBody');
+
+  try {
+    if (!MV_API_KEY) {
+      body.innerHTML = '<div style="color:var(--red,#ef5350);font-size:13px;">MV API key not configured.<br><span style="font-size:11px;color:var(--text-muted);">Set <code>omr_mv_api_key</code> in localStorage.</span></div>';
+      return;
+    }
+
+    const resp = await fetch(`${MV_API_URL}/api/match-funnel`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': MV_API_KEY,
+      },
+      body: JSON.stringify({
+        street_number: parsed.street_number || null,
+        state: parsed.state || null,
+        zip: parsed.zip || null,
+        sqft: parsed.sqft ? Number(parsed.sqft) : null,
+        beds: parsed.beds ? Number(parsed.beds) : null,
+        baths: parsed.baths ? Number(parsed.baths) : null,
+        year_built: parsed.year_built ? Number(parsed.year_built) : null,
+      }),
+    });
+
+    if (!resp.ok) {
+      const errData = await resp.json().catch(() => ({}));
+      throw new Error(errData.error || `HTTP ${resp.status}`);
+    }
+
+    const result = await resp.json();
+    const tiers = result.tiers || [];
+
+    if (tiers.length === 0) {
+      body.innerHTML = '<div style="color:var(--text-muted);font-size:13px;">No tiers could be evaluated (missing data fields).</div>';
+      return;
+    }
+
+    // Find max count for bar scaling
+    const maxCount = Math.max(...tiers.map(t => t.count), 1);
+
+    // Build input pills showing which fields were available
+    const inputFields = result.input || {};
+    let pillsHtml = '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:20px;">';
+    const fieldLabels = { street_number: 'St #', state: 'State', zip: 'Zip', sqft: 'SqFt', beds: 'Beds', baths: 'Baths', year_built: 'Yr Built' };
+    for (const [key, label] of Object.entries(fieldLabels)) {
+      const val = inputFields[key];
+      const hasVal = val != null && val !== '' && val !== 0;
+      pillsHtml += `<span style="display:inline-block;padding:3px 10px;border-radius:4px;font-size:11px;font-weight:600;${hasVal ? 'background:var(--accent);color:#fff;' : 'background:var(--surface);color:var(--text-muted);border:1px solid var(--border);opacity:0.5;'}">${label}${hasVal ? ': ' + escapeHtml(String(val)) : ''}</span>`;
+    }
+    pillsHtml += '</div>';
+
+    // Build funnel bars
+    let funnelHtml = pillsHtml;
+    funnelHtml += '<div style="display:flex;flex-direction:column;gap:8px;">';
+
+    for (const tier of tiers) {
+      const pct = maxCount > 0 ? Math.max((tier.count / maxCount) * 100, 2) : 2;
+      const barColor = tier.count === 1 ? 'var(--green)' :
+                       tier.count === 0 ? 'var(--red, #ef5350)' :
+                       tier.count <= 5 ? 'var(--accent)' : 'var(--text-muted)';
+      const countColor = tier.count === 1 ? 'var(--green)' :
+                         tier.count === 0 ? 'var(--red, #ef5350)' : 'var(--text)';
+
+      funnelHtml += `
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(tier.label)}">${escapeHtml(tier.label)}</div>
+            <div style="height:22px;background:var(--surface);border-radius:4px;overflow:hidden;">
+              <div style="height:100%;width:${pct}%;background:${barColor};border-radius:4px;transition:width 0.4s ease;"></div>
+            </div>
+          </div>
+          <div style="min-width:50px;text-align:right;font-size:16px;font-weight:700;color:${countColor};font-variant-numeric:tabular-nums;">${tier.count.toLocaleString()}</div>
+        </div>`;
+    }
+
+    funnelHtml += '</div>';
+
+    // Legend
+    funnelHtml += '<div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);display:flex;gap:16px;justify-content:center;font-size:10px;color:var(--text-muted);">';
+    funnelHtml += '<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--green);margin-right:4px;"></span>Unique (1)</span>';
+    funnelHtml += '<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--accent);margin-right:4px;"></span>Narrow (2-5)</span>';
+    funnelHtml += '<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--text-muted);margin-right:4px;"></span>Broad (6+)</span>';
+    funnelHtml += '<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--red,#ef5350);margin-right:4px;"></span>No match</span>';
+    funnelHtml += '</div>';
+
+    body.innerHTML = funnelHtml;
+
+  } catch (err) {
+    console.error('Match funnel error:', err);
+    body.innerHTML = '<div style="color:var(--red,#ef5350);font-size:13px;">Failed to load match funnel:<br>' + escapeHtml(err.message) + '</div>';
   }
 }
 
